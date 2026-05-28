@@ -1,0 +1,5 @@
+# aieventjs
+
+> A small, strict, typed event emitter — on() returns an unsubscribe function, once is built-in, AbortSignal is first-class, dispose() is idempotent, wildcard '*' handlers preserved. Mitt-shaped API where it counts; ai*js conventions everywhere else. Zero runtime dependencies. Part of the ai*js micro-runtime ecosystem.
+
+For the full LLM context (README + CHANGELOG + CONTRIBUTING concatenated), fetch [llms-full.txt](llms-full.txt).

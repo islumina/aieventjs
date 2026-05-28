@@ -9,11 +9,13 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "lcov", "html"],
       include: ["src/**/*.ts"],
+      // Thresholds match the 0.1.0 README target: statements/lines ≥95%,
+      // branches ≥90%, functions 100%.
       thresholds: {
-        statements: 0,
-        branches: 0,
-        functions: 0,
-        lines: 0,
+        statements: 95,
+        branches: 90,
+        functions: 100,
+        lines: 100,
       },
     },
     typecheck: {

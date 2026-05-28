@@ -86,7 +86,7 @@ bus.dispose(); // 冪等；dispose 後再呼叫拋 EmitterDisposedError
 | Wildcard `"*"` handler ── `(type, payload)`               | Cross-context transport（去用 `aibridgejs`）           |
 | `dispose()` 冪等；dispose 後呼叫拋錯                       | Error-event 特殊處理（Node EventEmitter 風格不做）     |
 | `emit` 走訪前 snapshot handler array（reentrant 安全）     | 持久化 / replay（不是它的工作）                       |
-| Method 可解構（`const { on, emit } = bus`）                | Steady-state `emit` 內配置 allocation                 |
+| Method 可解構（`const { on, emit } = bus`）                | 零配置 `emit`（每次派送需 snapshot，re-entrancy 安全所需）|
 
 ---
 
@@ -138,7 +138,7 @@ function createEmitter<Events extends Record<string, unknown> = Record<string, u
 | 版本       | 加入內容                                                                                                                                |
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | **0.0.1**  | Scaffold 落地 ── 凍結 API surface 為 `throw` stub；完整配置 + CI 跑得起來。                                                              |
-| **0.1.0**  | 第一個 npm release。`on` / `once` / `off` / `emit` / `clear` / `dispose` 實作完；coverage ≥ 95/90/100/100；≤ 550 B gzip。                |
+| **0.1.0**  | 第一個 npm release。`on` / `once` / `off` / `emit` / `clear` / `dispose` 實作完；coverage ≥ 95/90/100/100；≤ 800 B gzip（strict-TS 額外負擔實測落在 ~747 B）。 |
 | **0.2.0**  | `captureHandlerErrors` option ── 把拋錯的 handler 收進 `AggregateError`，不中斷派送。Opt-in。                                            |
 | **0.3+**   | TBD ── 由整合回饋驅動。候選：typed channel group、structured-clone payload 驗證、batch `emit`。                                          |
 

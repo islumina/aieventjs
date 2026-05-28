@@ -10,7 +10,7 @@
 
 Part of the [ai\*js micro-runtime ecosystem](https://github.com/yshengliao) — see also [aifsmjs](https://github.com/yshengliao/aifsmjs) (FSM), [aiecsjs](https://github.com/yshengliao/aiecsjs) (ECS), [aibridgejs](https://github.com/yshengliao/aibridgejs) (cross-context RPC), [aipooljs](https://github.com/yshengliao/aipooljs) (object pool), [aiquadtreejs](https://github.com/yshengliao/aiquadtreejs) (spatial partitioning), and [aiaudiojs](https://github.com/yshengliao/aiaudiojs) (Web Audio shell).
 
-> **Status: 0.0.1 scaffold.** API surface is frozen below; implementation lands in 0.1.0. `createEmitter` currently throws `"not implemented"` on call.
+> **Status: 0.1.0.** First npm release. Full implementation shipped; all methods are live. Coverage ≥ 95/90/100/100; ≤ 800 B gzip.
 
 ---
 
@@ -86,7 +86,7 @@ bus.dispose(); // idempotent; post-dispose calls throw EmitterDisposedError
 | Wildcard `"*"` handler — `(type, payload)`                | Cross-context transport (use `aibridgejs` for that)   |
 | `dispose()` idempotent; post-dispose calls throw          | Error-event special casing (Node EventEmitter style)  |
 | Handler-array snapshot on `emit` (safe re-entrancy)       | Persistent storage / replay (not its job)             |
-| Destructurable methods (`const { on, emit } = bus`)       | Allocations during steady-state `emit`                |
+| Destructurable methods (`const { on, emit } = bus`)       | Zero-allocation `emit` (one snapshot per dispatch is required for re-entrancy) |
 
 ---
 
@@ -138,7 +138,7 @@ Full JSDoc lives in [`src/index.ts`](src/index.ts).
 | Version    | Adds                                                                                                                                |
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | **0.0.1**  | Scaffold landed — frozen API surface as a `throw` stub; full config + CI walk clean.                                                |
-| **0.1.0**  | First npm release. `on` / `once` / `off` / `emit` / `clear` / `dispose` implemented; coverage ≥ 95/90/100/100; ≤ 550 B gzip.        |
+| **0.1.0**  | First npm release. `on` / `once` / `off` / `emit` / `clear` / `dispose` implemented; coverage ≥ 95/90/100/100; ≤ 800 B gzip (strict-TS overhead lands at ~747 B). |
 | **0.2.0**  | `captureHandlerErrors` option — collect throwing handlers into an `AggregateError` instead of aborting the dispatch. Opt-in.        |
 | **0.3+**   | TBD — driven by integration feedback. Candidates: typed channel groups, structured-clone payload check, batch `emit`.               |
 

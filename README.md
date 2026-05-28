@@ -10,7 +10,7 @@
 
 Part of the [ai\*js micro-runtime ecosystem](https://github.com/yshengliao) — see also [aifsmjs](https://github.com/yshengliao/aifsmjs) (FSM), [aiecsjs](https://github.com/yshengliao/aiecsjs) (ECS), [aibridgejs](https://github.com/yshengliao/aibridgejs) (cross-context RPC), [aipooljs](https://github.com/yshengliao/aipooljs) (object pool), [aiquadtreejs](https://github.com/yshengliao/aiquadtreejs) (spatial partitioning), and [aiaudiojs](https://github.com/yshengliao/aiaudiojs) (Web Audio shell).
 
-> **Status: 0.1.0.** First npm release. Full implementation shipped; all methods are live. Coverage ≥ 95/90/100/100; ≤ 800 B gzip.
+> **Status: 0.3.0.** Full implementation shipped; all methods are live. Coverage ≥ 95/90/100/100; ~1050 B gzip (budget 1100 B).
 
 ---
 
@@ -87,6 +87,9 @@ bus.dispose(); // idempotent; post-dispose calls throw EmitterDisposedError
 | `dispose()` idempotent; post-dispose calls throw          | Error-event special casing (Node EventEmitter style)  |
 | Handler-array snapshot on `emit` (safe re-entrancy)       | Persistent storage / replay (not its job)             |
 | Destructurable methods (`const { on, emit } = bus`)       | Zero-allocation `emit` (one snapshot per dispatch is required for re-entrancy) |
+| `on('*', fn, { sampleRate })` — probabilistic delivery for debug subscribers (wildcard only) | |
+| `on('*', fn, { throttleMs })` — leading-edge throttle for debug subscribers (wildcard only) | |
+| `createEmitter({ captureHandlerErrors })` — opt-in error policy; per-handler override via `OnOptions.captureErrors` | |
 
 ---
 
@@ -101,12 +104,17 @@ type WildcardHandler<Events extends Record<string, unknown>> =
 interface OnOptions {
   signal?: AbortSignal;
   once?: boolean;
+  captureErrors?: boolean | ((err: unknown, type: string, payload: unknown) => void); // typed only
+  sampleRate?: number;  // wildcard "*" only — probability in (0, 1]
+  throttleMs?: number;  // wildcard "*" only — leading-edge throttle, uses Date.now()
 }
 
 interface EmitterOptions {
-  // Reserved for 0.2.0 — collect throwing handlers into an AggregateError
-  // instead of aborting the dispatch. Ignored in 0.1.0.
-  captureHandlerErrors?: boolean;
+  // Default error policy. undefined/false (default): first throw aborts dispatch.
+  // true: swallow errors and continue dispatch over all handlers.
+  // (err, type, payload) => void: callback invoked per throwing handler.
+  // Per-handler OnOptions.captureErrors overrides this for individual subscriptions.
+  captureHandlerErrors?: boolean | ((err: unknown, type: string, payload: unknown) => void);
 }
 
 interface Emitter<Events extends Record<string, unknown>> {
@@ -139,8 +147,8 @@ Full JSDoc lives in [`src/index.ts`](src/index.ts).
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | **0.0.1**  | Scaffold landed — frozen API surface as a `throw` stub; full config + CI walk clean.                                                |
 | **0.1.0**  | First npm release. `on` / `once` / `off` / `emit` / `clear` / `dispose` implemented; coverage ≥ 95/90/100/100; ≤ 800 B gzip (strict-TS overhead lands at ~747 B). |
-| **0.2.0**  | `captureHandlerErrors` option — collect throwing handlers into an `AggregateError` instead of aborting the dispatch. Opt-in.        |
-| **0.3+**   | TBD — driven by integration feedback. Candidates: typed channel groups, structured-clone payload check, batch `emit`.               |
+| **0.3.0**  | `captureHandlerErrors` + wildcard sampling/throttling. The v0.2 number was skipped to align with the four-package v0.3 release cohort. |
+| **0.6+**   | Async handler tracking (draft) — see [STABILITY.md](STABILITY.md).                                                                  |
 
 ---
 

@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-29
+### Added
+- `EmitterOptions.captureHandlerErrors`: opt-in emitter-level error policy. Accepts `true` (swallow) or `(err, type, payload) => void` callback. Default behaviour (first throw aborts dispatch) is unchanged.
+- `OnOptions.captureErrors`: per-handler override of the emitter-level policy. `false` forces re-throw even when emitter-level swallows. Setting it on a wildcard `"*"` subscription throws `EmitterError`.
+- `OnOptions.sampleRate` (wildcard only): probability in `(0, 1]` that a dispatch reaches the handler; uses `Math.random()`. Out-of-range values throw `EmitterError` at `on()` time.
+- `OnOptions.throttleMs` (wildcard only): minimum ms between successive calls, leading-edge; uses `Date.now()`. Negative values throw `EmitterError` at `on()` time.
+- `STABILITY.md`: stability index for all public API surface, plus `[experimental]` placeholder for async handler tracking (targeted v0.6+).
+
+### Changed
+- Internal entry shape gains optional `ce` / `r` / `tm` / `ts` fields to carry per-handler error policy and wildcard throttle/sample state. Snapshot-before-iterate semantics in `emit()` are unchanged.
+- `scripts/check-size.mjs` budget raised from 800 B to 1100 B. Actual v0.3.0 gzip lands at ~1050 B; the spec estimate of 900 B was optimistic (~100 B per feature accounting for guard message strings and try/catch frames).
+
+### Notes
+- v0.2 was skipped; v0.3.0 directly supersedes the v0.2 roadmap entry for `captureHandlerErrors`. Existing v0.1 callers that did not pass the option see no behavioural change.
+
 ## [0.1.1] - 2026-05-28
 
 ### Changed (CI)

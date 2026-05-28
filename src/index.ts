@@ -5,20 +5,25 @@
 // idempotent dispose, destructurable methods (no `this`).
 
 /**
- * Configuration for {@link createEmitter}. Reserved for future options
- * (e.g. handler error policy); the scaffold accepts an empty object.
+ * Configuration for {@link createEmitter}. Controls the default error
+ * policy for handlers thrown during `emit()`; per-handler
+ * {@link OnOptions.captureErrors} overrides this default.
  *
  * @public
  */
 export interface EmitterOptions {
   /**
-   * If true, throwing handlers do not abort the remaining dispatch — the
-   * error is collected and re-thrown as a single `AggregateError` after
-   * all handlers ran. Default `false` (mitt-compatible: first throw wins).
+   * Default error policy for all handlers when they throw during emit().
    *
-   * Reserved for 0.2.0; ignored in 0.1.0.
+   *  - undefined / false (default) — first throw aborts dispatch (mitt-compatible).
+   *  - true — swallow; dispatch continues over all handlers in the snapshot.
+   *  - (err, type, payload) => void — invoked with the unknown error, the
+   *    event name as string, and the payload as unknown. If this callback
+   *    itself throws, the error is silently ignored.
+   *
+   * Per-subscription OnOptions.captureErrors overrides this for that handler.
    */
-  captureHandlerErrors?: boolean;
+  captureHandlerErrors?: boolean | ((err: unknown, type: string, payload: unknown) => void);
 }
 
 /**
@@ -53,6 +58,37 @@ export interface OnOptions {
 
   /** Auto-remove the handler after the first dispatch. Equivalent to `once()`. */
   once?: boolean;
+
+  /**
+   * Override emitter-level captureHandlerErrors for this handler.
+   *  - undefined — fall through to emitter-level.
+   *  - false — force re-throw, even when emitter-level is true / callback.
+   *  - true — swallow.
+   *  - (err, type, payload) => void — same semantics as the emitter-level callback.
+   *
+   * Throws EmitterError if set on a wildcard "*" subscription.
+   * @invariant does not break snapshot-before-iterate semantics.
+   */
+  captureErrors?: boolean | ((err: unknown, type: string, payload: unknown) => void);
+
+  /**
+   * Wildcard "*" only. Probability in (0, 1] that a dispatch reaches this
+   * handler. Math.random() is sampled per dispatch. Values <= 0 or > 1 are
+   * rejected at on() time.
+   *
+   * Throws EmitterError if set on a typed handler.
+   */
+  sampleRate?: number;
+
+  /**
+   * Wildcard "*" only. Minimum milliseconds between successive calls.
+   * Leading-edge: the first dispatch after subscription always fires;
+   * subsequent dispatches within `throttleMs` are dropped (not queued).
+   * Uses Date.now(). 0 = no throttle. Negative values are rejected.
+   *
+   * Throws EmitterError if set on a typed handler.
+   */
+  throttleMs?: number;
 }
 
 /**
@@ -101,10 +137,11 @@ export interface Emitter<Events extends Record<string, unknown>> {
 
   /**
    * Dispatch synchronously. Handlers receive `payload`; wildcard handlers
-   * receive `(type, payload)`. Handler list is snapshotted before
-   * iteration, so removing a handler inside its own callback does not
-   * skip subsequent handlers. The first throwing handler aborts the
-   * dispatch; remaining handlers (typed and wildcard) do not fire.
+   * receive `(type, payload)`. Handler lists are snapshotted before iteration,
+   * so removing a handler inside its own callback does not skip subsequent
+   * handlers. By default, the first throwing handler aborts the dispatch;
+   * set EmitterOptions.captureHandlerErrors (or per-handler OnOptions.captureErrors)
+   * to swallow or report errors and continue.
    */
   emit<K extends keyof Events>(type: K, payload: Events[K]): void;
 
@@ -125,7 +162,10 @@ export interface Emitter<Events extends Record<string, unknown>> {
 }
 
 /**
- * Recoverable emitter error. Reserved for future precondition violations.
+ * Recoverable emitter error. Thrown by `on()` when `OnOptions` violates a
+ * precondition: `captureErrors` set on a wildcard `"*"` subscription;
+ * `sampleRate` / `throttleMs` set on a typed subscription; `sampleRate`
+ * outside `(0, 1]`; or `throttleMs` negative.
  *
  * @public
  */
@@ -148,10 +188,19 @@ export class EmitterDisposedError extends Error {
 
 // Mutable `c` field (not optional `?:`) avoids exactOptionalPropertyTypes TS2412
 // when assigning undefined. Short field names reduce minified output size.
+type ErrorPolicy = boolean | ((err: unknown, type: string, payload: unknown) => void);
+
 interface E<H> {
   h: H; // handler (may be a once-wrapper)
   c: (() => void) | undefined; // abortCleanup
   u: H; // user-provided handler (off matching)
+  // v0.3.0: per-handler error policy and wildcard throttle/sample state.
+  // Fields typed as `T | undefined` (not just `T`) so that exactOptionalPropertyTypes
+  // permits assigning `undefined` in object literals (avoids TS2375).
+  ce?: ErrorPolicy | undefined; // captureErrors override (typed only)
+  r?: number | undefined; // sampleRate (wildcard only)
+  tm?: number | undefined; // throttleMs (wildcard only)
+  ts?: number | undefined; // last call timestamp — mutated during dispatch (wildcard only)
 }
 
 type AH = EventHandler<unknown>;
@@ -225,7 +274,7 @@ function sub<H>(arr: E<H>[], e: E<H>, sig: AbortSignal | undefined): () => void 
 export function createEmitter<Events extends Record<string, unknown> = Record<string, unknown>>(
   opts?: EmitterOptions,
 ): Emitter<Events> {
-  void opts;
+  const cap = opts?.captureHandlerErrors;
 
   const t: Map<string, E<AH>[]> = new Map();
   const w: E<WH>[] = [];
@@ -247,6 +296,19 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
 
   function on(type: string | "*", handler: AH | WH, o?: OnOptions): () => void {
     ck();
+    // v0.3.0 guards: cross-domain options + range checks
+    const sr = o?.sampleRate;
+    const tm2 = o?.throttleMs;
+    if (type === "*") {
+      if (o?.captureErrors !== undefined)
+        throw new EmitterError("aieventjs: captureErrors invalid on *");
+    } else {
+      if (sr !== undefined) throw new EmitterError("aieventjs: sampleRate wildcard-only");
+      if (tm2 !== undefined) throw new EmitterError("aieventjs: throttleMs wildcard-only");
+    }
+    if (sr !== undefined && (sr <= 0 || sr > 1))
+      throw new EmitterError("aieventjs: sampleRate must be in (0,1]");
+    if (tm2 !== undefined && tm2 < 0) throw new EmitterError("aieventjs: throttleMs must be >= 0");
     const sig = o?.signal;
     if (sig?.aborted) return () => {};
 
@@ -260,14 +322,17 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
           },
           u: fn,
           c: undefined,
+          r: sr,
+          tm: tm2,
         };
         const rm = sub(w, e, sig);
         return rm;
       }
-      return sub(w, { h: fn, u: fn, c: undefined }, sig);
+      return sub(w, { h: fn, u: fn, c: undefined, r: sr, tm: tm2 }, sig);
     }
 
     const fn = handler as AH;
+    const ce = o?.captureErrors;
     if (o?.once) {
       const e: E<AH> = {
         h: (p) => {
@@ -276,11 +341,12 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
         },
         u: fn,
         c: undefined,
+        ce: ce,
       };
       const rm = sub(ga(type), e, sig);
       return rm;
     }
-    return sub(ga(type), { h: fn, u: fn, c: undefined }, sig);
+    return sub(ga(type), { h: fn, u: fn, c: undefined, ce: ce }, sig);
   }
 
   function once<K extends keyof Events>(type: K, handler: EventHandler<Events[K]>): () => void {
@@ -308,16 +374,45 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
     }
   }
 
+  // Inline error policy handler — policy undefined/false → re-throw; true → swallow;
+  // function → invoke and swallow; if callback throws, ignore silently.
+  function ap(pol: ErrorPolicy | undefined, err: unknown, k: string, p: unknown): void {
+    if (pol === undefined || pol === false) throw err;
+    if (typeof pol === "function")
+      try {
+        pol(err, k, p);
+      } catch {
+        /* silent */
+      }
+  }
+
   function emit<K extends keyof Events>(type: K, payload: Events[K]): void {
     ck();
-    // Snapshot BOTH arrays before either dispatch loop, so a typed handler
-    // that adds/removes a wildcard handler during dispatch does not affect
-    // the wildcards that fire in this same emit (spec §2 / §5).
+    // Both slices happen BEFORE any handler call (snapshot-before-iterate).
     const k = type as string;
+    const p = payload as unknown;
     const ts = (t.get(k) ?? []).slice();
     const ws = w.slice();
-    for (const e of ts) e.h(payload as unknown);
-    for (const e of ws) e.h(type as string, payload);
+    for (const e of ts) {
+      try {
+        e.h(p);
+      } catch (err) {
+        ap(e.ce !== undefined ? e.ce : cap, err, k, p);
+      }
+    }
+    for (const e of ws) {
+      if (e.r !== undefined && Math.random() >= e.r) continue;
+      if (e.tm) {
+        const now = Date.now();
+        if (e.ts !== undefined && now - e.ts < e.tm) continue;
+        e.ts = now;
+      }
+      try {
+        e.h(k, p as never);
+      } catch (err) {
+        ap(cap, err, k, p);
+      }
+    }
   }
 
   function purge(): void {

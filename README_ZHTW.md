@@ -16,7 +16,7 @@
 
 ## 為什麼有 aieventjs
 
-為什麼不直接用 `mitt`？老實說 `mitt` 對很多專案來說是正確選擇 ── MIT、~282 bytes gzip、API 本身造型很好。我們評估過之後選擇自寫。三個理由（完整評估在 [LEARNINGS.md](../LEARNINGS.md)）：
+為什麼不直接用 `mitt`？老實說 `mitt` 對很多專案來說是正確選擇 ── MIT、~282 bytes gzip、API 本身造型很好。我們評估過之後選擇自寫。三個理由：
 
 - **mitt 自 2023-07-04 起停止維護。** 社群最想要的 PR ── `on()` 回傳 unsubscribe、`AbortSignal`、`sideEffects: false`、nodenext 相容 ── 全部 open 但沒人處理。fork 等於我們扛一份「上面寫人家名字」的副本，且就算改進了上游也接不回去。
 - **實作是 ~35 行純邏輯。** 那種尺寸沒有「fork 然後改良」這回事 ── 任何非 trivial 修改都等於重寫；繼承上游 copyright notice 的成本超過效益。

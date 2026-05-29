@@ -21,6 +21,8 @@ Tags follow Node's stability index conventions:
 | `OnOptions.throttleMs` (wildcard only) | [stable] | 0.3.0 |
 | `EmitterError` / `EmitterDisposedError` | [stable] | 0.1.0 |
 
+> **Stability freeze (0.4.0).** Every `[stable]` row above is frozen for the 1.x line: once 1.0 ships, these signatures, error names, and default behaviours will not change without a major version bump. v0.4.0 adds no runtime API — it formalises the 0.3.x surface as 1.0-track.
+
 ## Drafts (not yet implemented)
 
 ### Async handler tracking — [experimental] placeholder
@@ -37,5 +39,5 @@ createEmitter<Events>({
 // before any awaiting begins. Snapshot semantics preserved.
 ```
 
-Not part of v0.3.0; do not depend on this API. The current `emit()` remains
+Not part of v0.4.0; do not depend on this API. The current `emit()` remains
 fully synchronous and ignores handler return values.

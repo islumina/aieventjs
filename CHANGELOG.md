@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-29
+
+Dependency hygiene + stability freeze. No runtime API addition; `dist/` is byte-identical to 0.3.1 (no `src/` change). Consumer-facing behaviour is unchanged.
+
+### Changed
+- Aligned the `fast-check` devDependency to `^4.8.0` (was `^3.23.0`), matching the newer ai*js family cohort. Test-only; never bundled; zero consumer impact.
+- Declared the entire 0.3.x public API surface frozen for the 1.x line — see STABILITY.md. No signatures, error names, or default behaviours changed.
+
+### Removed
+- `tsx` devDependency — unused (no script, config, test, or CI step referenced it). Trims the lockfile subtree; no functional impact.
+
 ## [0.3.1] - 2026-05-29
 ### Added
 - `test/emitter.prop.test.ts`: three fast-check property invariants — dispatch

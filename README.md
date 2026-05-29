@@ -10,7 +10,7 @@
 
 Part of the [ai\*js micro-runtime ecosystem](https://github.com/yshengliao) — see also [aifsmjs](https://github.com/yshengliao/aifsmjs) (FSM), [aiecsjs](https://github.com/yshengliao/aiecsjs) (ECS), [aibridgejs](https://github.com/yshengliao/aibridgejs) (cross-context RPC), [aipooljs](https://github.com/yshengliao/aipooljs) (object pool), [aiquadtreejs](https://github.com/yshengliao/aiquadtreejs) (spatial partitioning), and [aiaudiojs](https://github.com/yshengliao/aiaudiojs) (Web Audio shell).
 
-> **Status: 0.3.0.** Full implementation shipped; all methods are live. Coverage ≥ 95/90/100/100; ~1050 B gzip (budget 1100 B).
+> **Status: 0.4.0.** Full implementation shipped; all methods are live. Coverage ≥ 95/90/100/100; ~1050 B gzip (budget 1100 B).
 
 ---
 
@@ -148,6 +148,7 @@ Full JSDoc lives in [`src/index.ts`](src/index.ts).
 | **0.0.1**  | Scaffold landed — frozen API surface as a `throw` stub; full config + CI walk clean.                                                |
 | **0.1.0**  | First npm release. `on` / `once` / `off` / `emit` / `clear` / `dispose` implemented; coverage ≥ 95/90/100/100; ≤ 800 B gzip (strict-TS overhead lands at ~747 B). |
 | **0.3.0**  | `captureHandlerErrors` + wildcard sampling/throttling. The v0.2 number was skipped to align with the four-package v0.3 release cohort. |
+| **0.4.0**  | Dependency hygiene + stability freeze: removed the unused `tsx` devDependency, aligned `fast-check` to `^4.8.0`, and froze the 0.3.x public surface for the 1.x line. No runtime API change; bundle byte-identical to 0.3.1. |
 | **0.6+**   | Async handler tracking (draft) — see [STABILITY.md](STABILITY.md).                                                                  |
 
 ---

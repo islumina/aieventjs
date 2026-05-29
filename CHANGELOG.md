@@ -6,6 +6,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-05-29
+### Added
+- `test/emitter.prop.test.ts`: three fast-check property invariants — dispatch
+  order (typed before wildcard, registration order preserved), snapshot stability
+  under mid-dispatch `off()`, live-set accuracy after upfront unsubscribe.
+  `numRuns: 100`; inline `fc.assert` style matching family convention.
+- `test/wildcard-throttle.test.ts` §F: five edge-case tests — pre-aborted signal
+  + valid `sampleRate` never registers; `on()` guard-before-signal ordering;
+  `captureErrors` + signal leak check (`removeEventListener` called on abort);
+  throttled wildcard + mid-dispatch abort (snapshot-in-flight completes);
+  `sampleRate` exact boundary (`Math.random() === sampleRate` is a miss).
+- `test/capture-errors.test.ts` §F: dispose-during-capturing-dispatch —
+  snapshot completes; `EmitterDisposedError` from re-entrant `emit()` is routed
+  through the capture callback; sibling handler still runs.
+- `fast-check ^3.23.0` devDependency (family convention: aifsmjs `^3.20.0`,
+  aiquadtreejs `^3.23.0`).
+
+### Changed
+- No `src/index.ts` behaviour change. `dist/` is byte-identical to v0.3.0.
+  gzip 1050 B / 1100 B unchanged.
+
 ## [0.3.0] - 2026-05-29
 ### Added
 - `EmitterOptions.captureHandlerErrors`: opt-in emitter-level error policy. Accepts `true` (swallow) or `(err, type, payload) => void` callback. Default behaviour (first throw aborts dispatch) is unchanged.

@@ -212,3 +212,41 @@ describe("E. Dispose / type smoke", () => {
     >();
   });
 });
+
+// ---------------------------------------------------------------------------
+// F. dispose during capturing dispatch
+// ---------------------------------------------------------------------------
+
+describe("F. dispose during capturing dispatch", () => {
+  it("F1. dispose inside handler: snapshot continues; re-entrant emit is caught by captureErrors; DisposedError routed to capture callback", () => {
+    const captured: unknown[] = [];
+    const cb = (err: unknown) => captured.push(err);
+    const bus = createEmitter<Events>({ captureHandlerErrors: cb });
+    const log: string[] = [];
+
+    bus.on("ping", () => {
+      bus.dispose();
+      log.push("disposed");
+      // Re-entrant emit throws EmitterDisposedError synchronously from ck().
+      // This error propagates out of this handler's body, into the outer
+      // emit()'s try/catch, and is passed to the capture callback cb.
+      // We call bus.emit() directly (no expect wrapper) so the error
+      // actually escapes the handler body.
+      bus.emit("ping", { n: 2 });
+    });
+    bus.on("ping", () => {
+      log.push("sibling");
+    });
+
+    // The outer emit itself does not throw: captureHandlerErrors swallows.
+    expect(() => bus.emit("ping", { n: 1 })).not.toThrow();
+
+    // Snapshot was taken before dispose(), so sibling still ran.
+    expect(log).toEqual(["disposed", "sibling"]);
+    // The EmitterDisposedError thrown by the re-entrant bus.emit() inside
+    // handler-1 is caught by the outer dispatch loop's catch(err) and
+    // routed to cb.
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toBeInstanceOf(EmitterDisposedError);
+  });
+});

@@ -230,3 +230,79 @@ describe("E. Lifecycle", () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// F. AbortSignal + guard ordering (v0.3 options)
+// ---------------------------------------------------------------------------
+
+describe("F. AbortSignal + guard ordering (v0.3 options)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("F1. pre-aborted signal + sampleRate: no registration, never fires", () => {
+    const bus = createEmitter<Events>();
+    const fn = vi.fn();
+    const ctrl = new AbortController();
+    ctrl.abort();
+    bus.on("*", fn, { signal: ctrl.signal, sampleRate: 0.5 });
+    bus.emit("ping", { n: 1 });
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  // pin: on() validates OnOptions BEFORE checking sig?.aborted
+  it("F2. invalid option (typed + sampleRate) throws EmitterError even with pre-aborted signal", () => {
+    const bus = createEmitter<Events>();
+    const ctrl = new AbortController();
+    ctrl.abort();
+    expect(() => bus.on("ping", vi.fn(), { signal: ctrl.signal, sampleRate: 0.5 })).toThrow(
+      EmitterError,
+    );
+  });
+
+  it("F3. captureErrors typed handler: abort mid-life removes the listener cleanly", () => {
+    const bus = createEmitter<Events>();
+    const fn = vi.fn();
+    const ctrl = new AbortController();
+    const removeSpy = vi.spyOn(ctrl.signal, "removeEventListener");
+    bus.on("ping", fn, { signal: ctrl.signal });
+    ctrl.abort();
+    expect(removeSpy).toHaveBeenCalled();
+    bus.emit("ping", { n: 1 });
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("F4. throttled wildcard + abort during dispatch: snapshot-in-flight completes", () => {
+    const bus = createEmitter<Events>();
+    const ctrl = new AbortController();
+    const log: string[] = [];
+
+    bus.on(
+      "*",
+      () => {
+        log.push("first");
+        ctrl.abort();
+      },
+      { signal: ctrl.signal, throttleMs: 100 },
+    );
+
+    bus.on("*", () => {
+      log.push("sibling");
+    });
+
+    bus.emit("ping", { n: 1 });
+
+    // Both wildcard handlers were in the snapshot before dispatch started,
+    // so sibling still runs even though ctrl was aborted inside "first".
+    expect(log).toEqual(["first", "sibling"]);
+  });
+
+  it("F5. sampleRate boundary: Math.random() === sampleRate drops the dispatch (guard is >=)", () => {
+    const bus = createEmitter<Events>();
+    const fn = vi.fn();
+    bus.on("*", fn, { sampleRate: 0.5 });
+    vi.spyOn(Math, "random").mockReturnValue(0.5); // exactly equal → drop
+    bus.emit("ping", { n: 1 });
+    expect(fn).not.toHaveBeenCalled();
+  });
+});

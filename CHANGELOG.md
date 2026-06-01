@@ -6,6 +6,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- `NaN` sampleRate and `NaN` throttleMs now throw `EmitterError` at `on()` time.
+  Previously, `NaN <= 0` and `NaN > 1` both evaluate to `false`, so a `NaN`
+  sampleRate silently passed validation and degraded to always-fire semantics;
+  similarly `NaN < 0` is `false`, so a `NaN` throttleMs passed and degraded to
+  no-throttle. Both guards now include `Number.isFinite()` as the first check,
+  consistent with the documented contract that invalid values throw `EmitterError`.
+
+### Tests
+- Added regression tests locking in `NaN` rejection for both `sampleRate` and
+  `throttleMs` (wildcard-throttle.test.ts §A6, §B4).
+- Added regression tests confirming that a `once` handler that throws is still
+  removed and does not re-fire on the next emit — for both typed and wildcard
+  once subscriptions (emitter.test.ts §C2a, §C2b).
+- Added regression tests for post-dispose guard coverage: `off()` after
+  `dispose()` throws `EmitterDisposedError`; `clear()` after `dispose()` throws
+  `EmitterDisposedError`; the unsubscribe function returned by `on()` is a safe
+  no-op (does not throw) after `dispose()` (emitter.test.ts §H2a, §H2b, §H2c).
+
 ## [0.4.0] - 2026-05-29
 
 Dependency hygiene + stability freeze. No runtime API addition; `dist/` is byte-identical to 0.3.1 (no `src/` change). Consumer-facing behaviour is unchanged.

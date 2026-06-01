@@ -306,9 +306,10 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
       if (sr !== undefined) throw new EmitterError("aieventjs: sampleRate wildcard-only");
       if (tm2 !== undefined) throw new EmitterError("aieventjs: throttleMs wildcard-only");
     }
-    if (sr !== undefined && (sr <= 0 || sr > 1))
+    if (sr !== undefined && (!Number.isFinite(sr) || sr <= 0 || sr > 1))
       throw new EmitterError("aieventjs: sampleRate must be in (0,1]");
-    if (tm2 !== undefined && tm2 < 0) throw new EmitterError("aieventjs: throttleMs must be >= 0");
+    if (tm2 !== undefined && (!Number.isFinite(tm2) || tm2 < 0))
+      throw new EmitterError("aieventjs: throttleMs must be >= 0");
     const sig = o?.signal;
     if (sig?.aborted) return () => {};
 

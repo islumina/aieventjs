@@ -43,6 +43,12 @@ describe("A. sampleRate", () => {
     expect(() => bus.on("*", vi.fn(), { sampleRate: -0.1 })).toThrow(/sampleRate/);
   });
 
+  it("A6. sampleRate=NaN throws EmitterError at on() time", () => {
+    const bus = createEmitter<Events>();
+    expect(() => bus.on("*", vi.fn(), { sampleRate: Number.NaN })).toThrow(EmitterError);
+    expect(() => bus.on("*", vi.fn(), { sampleRate: Number.NaN })).toThrow(/sampleRate/);
+  });
+
   it("A5. sampleRate=0.5: random=0.4 calls handler; random=0.6 skips handler", () => {
     const bus = createEmitter<Events>();
     const fn = vi.fn();
@@ -107,6 +113,12 @@ describe("B. throttleMs", () => {
     const bus = createEmitter<Events>();
     expect(() => bus.on("*", vi.fn(), { throttleMs: -1 })).toThrow(EmitterError);
     expect(() => bus.on("*", vi.fn(), { throttleMs: -1 })).toThrow(/throttleMs/);
+  });
+
+  it("B4. throttleMs=NaN throws EmitterError at on() time", () => {
+    const bus = createEmitter<Events>();
+    expect(() => bus.on("*", vi.fn(), { throttleMs: Number.NaN })).toThrow(EmitterError);
+    expect(() => bus.on("*", vi.fn(), { throttleMs: Number.NaN })).toThrow(/throttleMs/);
   });
 });
 

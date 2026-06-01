@@ -560,6 +560,70 @@ describe("I. clear", () => {
 });
 
 // ---------------------------------------------------------------------------
+// H2. dispose — additional edge cases
+// ---------------------------------------------------------------------------
+
+describe("H2. dispose — additional edge cases", () => {
+  it("H2a. off() after dispose() throws EmitterDisposedError", () => {
+    const bus = createEmitter<Events>();
+    bus.on("ping", () => {});
+    bus.dispose();
+    expect(() => bus.off("ping")).toThrow(EmitterDisposedError);
+  });
+
+  it("H2b. clear() after dispose() throws EmitterDisposedError", () => {
+    const bus = createEmitter<Events>();
+    bus.dispose();
+    expect(() => bus.clear()).toThrow(EmitterDisposedError);
+  });
+
+  it("H2c. unsubscribe function returned by on() is a safe no-op after dispose()", () => {
+    const bus = createEmitter<Events>();
+    const unsub = bus.on("ping", () => {});
+    bus.dispose();
+    expect(() => unsub()).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C2. once regression — handler removed even when it throws
+// ---------------------------------------------------------------------------
+
+describe("C2. once regression — removed on throw", () => {
+  it("C2a. typed once handler that throws is removed; does not re-fire on next emit", () => {
+    const bus = createEmitter<Events>({ captureHandlerErrors: true });
+    let callCount = 0;
+    bus.once("ping", () => {
+      callCount++;
+      throw new Error("once-throws");
+    });
+    bus.emit("ping", { n: 1 });
+    expect(callCount).toBe(1);
+    bus.emit("ping", { n: 2 });
+    // must not fire again — once semantics hold even when handler threw
+    expect(callCount).toBe(1);
+  });
+
+  it("C2b. wildcard once handler that throws is removed; does not re-fire on next emit", () => {
+    const bus = createEmitter<Events>({ captureHandlerErrors: true });
+    let callCount = 0;
+    bus.on(
+      "*",
+      () => {
+        callCount++;
+        throw new Error("wild-once-throws");
+      },
+      { once: true },
+    );
+    bus.emit("ping", { n: 1 });
+    expect(callCount).toBe(1);
+    bus.emit("pong", "hi");
+    // must not fire again
+    expect(callCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // J. Type-level smoke
 // ---------------------------------------------------------------------------
 

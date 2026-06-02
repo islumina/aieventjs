@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-06-02
+
 ### Fixed
 - `NaN` sampleRate and `NaN` throttleMs now throw `EmitterError` at `on()` time.
   Previously, `NaN <= 0` and `NaN > 1` both evaluate to `false`, so a `NaN`

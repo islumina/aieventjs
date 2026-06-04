@@ -87,6 +87,9 @@ bus.dispose(); // 冪等；dispose 後再呼叫拋 EmitterDisposedError
 | `dispose()` 冪等；dispose 後呼叫拋錯                       | Error-event 特殊處理（Node EventEmitter 風格不做）     |
 | `emit` 走訪前 snapshot handler array（reentrant 安全）     | 持久化 / replay（不是它的工作）                       |
 | Method 可解構（`const { on, emit } = bus`）                | 零配置 `emit`（每次派送需 snapshot，re-entrancy 安全所需）|
+| `on('*', fn, { sampleRate })` ── 機率性派送（wildcard only）| |
+| `on('*', fn, { throttleMs })` ── leading-edge throttle（wildcard only）| |
+| `createEmitter({ captureHandlerErrors })` ── opt-in 錯誤策略；`OnOptions.captureErrors` 個別 handler 覆蓋 | |
 
 ---
 
@@ -101,12 +104,17 @@ type WildcardHandler<Events extends Record<string, unknown>> =
 interface OnOptions {
   signal?: AbortSignal;
   once?: boolean;
+  captureErrors?: boolean | ((err: unknown, type: string, payload: unknown) => void); // 僅限 typed handler
+  sampleRate?: number;  // wildcard "*" only — 機率 (0, 1]
+  throttleMs?: number;  // wildcard "*" only — leading-edge throttle，使用 Date.now()
 }
 
 interface EmitterOptions {
-  // 預留給 0.2.0 ── 把拋錯的 handler 收進 AggregateError，
-  // 不中斷派送。0.1.0 忽略此欄位。
-  captureHandlerErrors?: boolean;
+  // 預設錯誤策略。undefined/false（預設）：第一個拋錯即中斷派送。
+  // true：吞掉錯誤並繼續走完所有 handler。
+  // (err, type, payload) => void：每個拋錯的 handler 呼叫一次 callback（若此 callback 自身拋錯，會被靜默忽略並繼續派送）。
+  // OnOptions.captureErrors 可覆蓋個別 handler 的策略。
+  captureHandlerErrors?: boolean | ((err: unknown, type: string, payload: unknown) => void);
 }
 
 interface Emitter<Events extends Record<string, unknown>> {
@@ -139,8 +147,9 @@ function createEmitter<Events extends Record<string, unknown> = Record<string, u
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | **0.0.1**  | Scaffold 落地 ── 凍結 API surface 為 `throw` stub；完整配置 + CI 跑得起來。                                                              |
 | **0.1.0**  | 第一個 npm release。`on` / `once` / `off` / `emit` / `clear` / `dispose` 實作完；coverage ≥ 95/90/100/100；≤ 800 B gzip（strict-TS 額外負擔實測落在 ~747 B）。 |
-| **0.2.0**  | `captureHandlerErrors` option ── 把拋錯的 handler 收進 `AggregateError`，不中斷派送。Opt-in。                                            |
-| **0.3+**   | TBD ── 由整合回饋驅動。候選：typed channel group、structured-clone payload 驗證、batch `emit`。                                          |
+| **0.3.0**  | `captureHandlerErrors` + wildcard sampling/throttling。v0.2 編號跳過以配合四套件 v0.3 同步釋出。                                          |
+| **0.4.0**  | 相依整理 + 穩定凍結：移除未使用的 `tsx`、`fast-check` 對齊 `^4.8.0`、凍結 0.3.x 公開 API surface。無 runtime API 異動；bundle 與 0.3.1 完全相同。 |
+| **0.6+**   | Async handler 追蹤（草案）── 詳見 [STABILITY.md](STABILITY.md)。                                                                        |
 
 ---
 

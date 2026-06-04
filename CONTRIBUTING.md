@@ -1,7 +1,7 @@
 # Contributing to aieventjs
 
 Thanks for taking the time to look. aieventjs is a deliberately small library
-(target ≤ 550 B gzip); contributions that keep the surface narrow are easier
+(target ≤ 1100 B gzip); contributions that keep the surface narrow are easier
 to accept than ones that expand it.
 
 ## Quick start
@@ -34,7 +34,7 @@ pnpm check:size      # gzip per subpath against the size budget
   if you need that
 - Async / promise-returning handlers — explicit non-goal (handlers are
   synchronous; resolve promises in user-land)
-- Anything that pushes the core gzip past 550 B
+- Anything that pushes the core gzip past 1100 B
 
 ## Design principles
 

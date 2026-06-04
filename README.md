@@ -112,7 +112,8 @@ interface OnOptions {
 interface EmitterOptions {
   // Default error policy. undefined/false (default): first throw aborts dispatch.
   // true: swallow errors and continue dispatch over all handlers.
-  // (err, type, payload) => void: callback invoked per throwing handler.
+  // (err, type, payload) => void: callback invoked per throwing handler
+  //   (if the callback itself throws, that error is silently ignored and dispatch continues).
   // Per-handler OnOptions.captureErrors overrides this for individual subscriptions.
   captureHandlerErrors?: boolean | ((err: unknown, type: string, payload: unknown) => void);
 }

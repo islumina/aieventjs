@@ -125,7 +125,8 @@ interface OnOptions {
 interface EmitterOptions {
   // Default error policy. undefined/false (default): first throw aborts dispatch.
   // true: swallow errors and continue dispatch over all handlers.
-  // (err, type, payload) => void: callback invoked per throwing handler.
+  // (err, type, payload) => void: callback invoked per throwing handler
+  //   (if the callback itself throws, that error is silently ignored and dispatch continues).
   // Per-handler OnOptions.captureErrors overrides this for individual subscriptions.
   captureHandlerErrors?: boolean | ((err: unknown, type: string, payload: unknown) => void);
 }
@@ -316,7 +317,7 @@ No runtime / source / API changes. This is a CI-only patch to validate the GitHu
 # Contributing to aieventjs
 
 Thanks for taking the time to look. aieventjs is a deliberately small library
-(target ≤ 550 B gzip); contributions that keep the surface narrow are easier
+(target ≤ 1100 B gzip); contributions that keep the surface narrow are easier
 to accept than ones that expand it.
 
 ## Quick start
@@ -349,7 +350,7 @@ pnpm check:size      # gzip per subpath against the size budget
   if you need that
 - Async / promise-returning handlers — explicit non-goal (handlers are
   synchronous; resolve promises in user-land)
-- Anything that pushes the core gzip past 550 B
+- Anything that pushes the core gzip past 1100 B
 
 ## Design principles
 

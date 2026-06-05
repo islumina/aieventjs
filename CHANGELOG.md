@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-06-05
+
+### Added
+- `throttleMs` is now accepted on typed `on()` (non-breaking; per-handler leading-edge throttle, e.g. a per-frame `credits/change` HUD event). Previously it threw `EmitterError` (wildcard-only); `sampleRate` stays wildcard-only.
+
+### Docs
+- Document that event maps must be declared with `type`, not `interface` (an `interface` lacks an index signature and fails the `Record<string, unknown>` constraint with TS2344); `createEmitter` JSDoc + README + `README_ZHTW.md` + regenerated `llms-full.txt`.
+
 ## [0.5.2] - 2026-06-05
 
 ### Docs

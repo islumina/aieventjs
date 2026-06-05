@@ -10,7 +10,7 @@
 
 隸屬 [ai\*js micro-runtime 生態系](https://github.com/yshengliao) ─ 另見 [aifsmjs](https://github.com/yshengliao/aifsmjs)（FSM）、[aiecsjs](https://github.com/yshengliao/aiecsjs)（ECS）、[aibridgejs](https://github.com/yshengliao/aibridgejs)（cross-context RPC）、[aipooljs](https://github.com/yshengliao/aipooljs)（物件池）、[aiquadtreejs](https://github.com/yshengliao/aiquadtreejs)（空間分割）、[aiaudiojs](https://github.com/yshengliao/aiaudiojs)（Web Audio 薄殼）。
 
-> **狀態：0.5.1。** 完整實作已上線、所有 method 皆可用。Coverage ≥ 95/90/100/100；~1050 B gzip（budget 1100 B）。
+> **狀態：0.5.3。** 完整實作已上線、所有 method 皆可用。Coverage ≥ 95/90/100/100；~1050 B gzip（budget 1100 B）。
 
 ---
 
@@ -73,6 +73,18 @@ bus.dispose(); // 冪等；dispose 後再呼叫拋 EmitterDisposedError
 
 `createEmitter()` 回傳的 method 不抓 `this` ── `const { on, emit } = bus` 解構沒問題。
 
+> **event map 要用 `type` 宣告、不要用 `interface`。** `Events` generic 受限於 `Record<string, unknown>`。**純** TypeScript `interface` 沒有隱含的 index signature，傳進去會違反 constraint、報 *"Index signature for type 'string' is missing in type ..."*；`type` 物件字面值則在結構上滿足它。（加了顯式 index signature、或 `extends Record<string, unknown>` 的 `interface` 也能通過，但會把 `keyof Events` 擴成 `string`、失去嚴格的事件名稱檢查，故建議用 `type`。）
+>
+> ```typescript
+> // ❌ interface ── 違反 Record<string, unknown> constraint（TS2344）
+> interface Events { "user:login": { id: string } }
+> const bus = createEmitter<Events>();
+>
+> // ✅ type ── 滿足 constraint
+> type Events = { "user:login": { id: string } };
+> const bus = createEmitter<Events>();
+> ```
+
 ---
 
 ## 能做 / 不做
@@ -88,7 +100,7 @@ bus.dispose(); // 冪等；dispose 後再呼叫拋 EmitterDisposedError
 | `emit` 走訪前 snapshot handler array（reentrant 安全）     | 持久化 / replay（不是它的工作）                       |
 | Method 可解構（`const { on, emit } = bus`）                | 零配置 `emit`（每次派送需 snapshot，re-entrancy 安全所需）|
 | `on('*', fn, { sampleRate })` ── 機率性派送（wildcard only）| |
-| `on('*', fn, { throttleMs })` ── leading-edge throttle（wildcard only）| |
+| `on(type, fn, { throttleMs })` ── per-handler leading-edge throttle，typed **與** wildcard 皆可（如每幀觸發的 `credits/change` HUD 事件）| |
 | `createEmitter({ captureHandlerErrors })` ── opt-in 錯誤策略；`OnOptions.captureErrors` 個別 handler 覆蓋 | |
 
 ---
@@ -106,7 +118,7 @@ interface OnOptions {
   once?: boolean;
   captureErrors?: boolean | ((err: unknown, type: string, payload: unknown) => void); // 僅限 typed handler
   sampleRate?: number;  // wildcard "*" only — 機率 (0, 1]
-  throttleMs?: number;  // wildcard "*" only — leading-edge throttle，使用 Date.now()
+  throttleMs?: number;  // typed 或 wildcard — per-handler leading-edge throttle，使用 Date.now()
 }
 
 interface EmitterOptions {

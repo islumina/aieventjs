@@ -10,7 +10,7 @@
 
 Part of the [ai\*js micro-runtime ecosystem](https://github.com/yshengliao) — see also [aifsmjs](https://github.com/yshengliao/aifsmjs) (FSM), [aiecsjs](https://github.com/yshengliao/aiecsjs) (ECS), [aibridgejs](https://github.com/yshengliao/aibridgejs) (cross-context RPC), [aipooljs](https://github.com/yshengliao/aipooljs) (object pool), [aiquadtreejs](https://github.com/yshengliao/aiquadtreejs) (spatial partitioning), and [aiaudiojs](https://github.com/yshengliao/aiaudiojs) (Web Audio shell).
 
-> **Status: 0.5.1.** Full implementation shipped; all methods are live. Coverage ≥ 95/90/100/100; ~1050 B gzip (budget 1100 B).
+> **Status: 0.5.3.** Full implementation shipped; all methods are live. Coverage ≥ 95/90/100/100; ~1050 B gzip (budget 1100 B).
 
 ---
 
@@ -73,6 +73,18 @@ bus.dispose(); // idempotent; post-dispose calls throw EmitterDisposedError
 
 `createEmitter()` returns a plain object whose methods do not depend on `this` — `const { on, emit } = bus` works fine.
 
+> **Declare the event map with `type`, not `interface`.** The `Events` generic is constrained to `Record<string, unknown>`. A *plain* TypeScript `interface` has no implicit index signature, so passing one fails the constraint with *"Index signature for type 'string' is missing in type ..."*. A `type` object literal satisfies it structurally. (An `interface` with an explicit index signature — or one that `extends Record<string, unknown>` — also compiles, but widens `keyof Events` to `string` and loses strict event-name checking, so prefer `type`.)
+>
+> ```typescript
+> // ❌ interface — fails the Record<string, unknown> constraint (TS2344)
+> interface Events { "user:login": { id: string } }
+> const bus = createEmitter<Events>();
+>
+> // ✅ type — satisfies the constraint
+> type Events = { "user:login": { id: string } };
+> const bus = createEmitter<Events>();
+> ```
+
 ---
 
 ## Capabilities / Limitations
@@ -88,7 +100,7 @@ bus.dispose(); // idempotent; post-dispose calls throw EmitterDisposedError
 | Handler-array snapshot on `emit` (safe re-entrancy)       | Persistent storage / replay (not its job)             |
 | Destructurable methods (`const { on, emit } = bus`)       | Zero-allocation `emit` (one snapshot per dispatch is required for re-entrancy) |
 | `on('*', fn, { sampleRate })` — probabilistic delivery for debug subscribers (wildcard only) | |
-| `on('*', fn, { throttleMs })` — leading-edge throttle for debug subscribers (wildcard only) | |
+| `on(type, fn, { throttleMs })` — per-handler leading-edge throttle, on typed **and** wildcard subscriptions (e.g. a per-frame `credits/change` HUD event) | |
 | `createEmitter({ captureHandlerErrors })` — opt-in error policy; per-handler override via `OnOptions.captureErrors` | |
 
 ---
@@ -106,7 +118,7 @@ interface OnOptions {
   once?: boolean;
   captureErrors?: boolean | ((err: unknown, type: string, payload: unknown) => void); // typed only
   sampleRate?: number;  // wildcard "*" only — probability in (0, 1]
-  throttleMs?: number;  // wildcard "*" only — leading-edge throttle, uses Date.now()
+  throttleMs?: number;  // typed or wildcard — per-handler leading-edge throttle, uses Date.now()
 }
 
 interface EmitterOptions {

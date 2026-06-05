@@ -133,10 +133,9 @@ describe("C. Wildcard-only enforcement", () => {
     expect(() => bus.on("ping", vi.fn(), { sampleRate: 0.5 })).toThrow(/sampleRate/);
   });
 
-  it("C2. throttleMs on typed handler throws EmitterError", () => {
+  it("C2. throttleMs is accepted on a typed handler (v0.5.3, no longer throws)", () => {
     const bus = createEmitter<Events>();
-    expect(() => bus.on("ping", vi.fn(), { throttleMs: 100 })).toThrow(EmitterError);
-    expect(() => bus.on("ping", vi.fn(), { throttleMs: 100 })).toThrow(/throttleMs/);
+    expect(() => bus.on("ping", vi.fn(), { throttleMs: 100 })).not.toThrow();
   });
 });
 
@@ -316,5 +315,92 @@ describe("F. AbortSignal + guard ordering (v0.3 options)", () => {
     vi.spyOn(Math, "random").mockReturnValue(0.5); // exactly equal → drop
     bus.emit("ping", { n: 1 });
     expect(fn).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// G. throttleMs on typed on() (v0.5.3) — per-handler leading-edge throttle
+// ---------------------------------------------------------------------------
+
+describe("G. Typed-handler throttleMs (v0.5.3)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("G1. throttleMs=100 on typed on(): leading edge fires, window drops, past-window fires", () => {
+    const bus = createEmitter<Events>();
+    const fn = vi.fn();
+    bus.on("ping", fn, { throttleMs: 100 });
+
+    bus.emit("ping", { n: 1 }); // leading edge
+    expect(fn).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(50);
+    bus.emit("ping", { n: 2 }); // within window → dropped
+    expect(fn).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(51); // total 101ms
+    bus.emit("ping", { n: 3 }); // past window → fires
+    expect(fn).toHaveBeenCalledTimes(2);
+    expect(fn).toHaveBeenLastCalledWith({ n: 3 });
+  });
+
+  it("G2. each typed handler on the same event keeps an independent throttle clock", () => {
+    const bus = createEmitter<Events>();
+    const throttled = vi.fn();
+    const plain = vi.fn();
+    bus.on("ping", throttled, { throttleMs: 100 });
+    bus.on("ping", plain); // no throttle
+
+    bus.emit("ping", { n: 1 });
+    bus.emit("ping", { n: 2 }); // throttled drops, plain still fires every time
+    expect(throttled).toHaveBeenCalledTimes(1);
+    expect(plain).toHaveBeenCalledTimes(2);
+  });
+
+  it("G3. throttleMs=0 on typed handler is no-throttle; every dispatch fires", () => {
+    const bus = createEmitter<Events>();
+    const fn = vi.fn();
+    bus.on("ping", fn, { throttleMs: 0 });
+    bus.emit("ping", { n: 1 });
+    bus.emit("ping", { n: 2 });
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("G4. typed throttle validation still fires: negative and NaN throw EmitterError", () => {
+    const bus = createEmitter<Events>();
+    expect(() => bus.on("ping", vi.fn(), { throttleMs: -1 })).toThrow(EmitterError);
+    expect(() => bus.on("ping", vi.fn(), { throttleMs: -1 })).toThrow(/throttleMs/);
+    expect(() => bus.on("ping", vi.fn(), { throttleMs: Number.NaN })).toThrow(EmitterError);
+  });
+
+  it("G5. once + throttleMs on typed handler: once auto-removes, so it fires exactly once", () => {
+    const bus = createEmitter<Events>();
+    const fn = vi.fn();
+    bus.on("ping", fn, { throttleMs: 100, once: true });
+    bus.emit("ping", { n: 1 }); // fires, then removed by once
+    vi.advanceTimersByTime(200);
+    bus.emit("ping", { n: 2 }); // handler gone
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(fn).toHaveBeenCalledWith({ n: 1 });
+  });
+
+  it("G6. unsubscribe and re-subscribe a typed throttle resets the clock (fresh entry)", () => {
+    const bus = createEmitter<Events>();
+    const fn = vi.fn();
+    const off = bus.on("ping", fn, { throttleMs: 100 });
+    bus.emit("ping", { n: 1 }); // fires, ts set
+    vi.advanceTimersByTime(30);
+    bus.emit("ping", { n: 2 }); // within window → dropped
+    expect(fn).toHaveBeenCalledTimes(1);
+
+    off();
+    bus.on("ping", fn, { throttleMs: 100 }); // fresh entry, ts undefined
+    bus.emit("ping", { n: 3 }); // new leading edge
+    expect(fn).toHaveBeenCalledTimes(2);
   });
 });

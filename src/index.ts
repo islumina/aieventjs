@@ -81,12 +81,14 @@ export interface OnOptions {
   sampleRate?: number;
 
   /**
-   * Wildcard "*" only. Minimum milliseconds between successive calls.
-   * Leading-edge: the first dispatch after subscription always fires;
+   * Per-handler leading-edge throttle. Minimum milliseconds between successive
+   * calls to this handler. The first dispatch after subscription always fires;
    * subsequent dispatches within `throttleMs` are dropped (not queued).
-   * Uses Date.now(). 0 = no throttle. Negative values are rejected.
+   * Uses Date.now(). 0 = no throttle. Non-finite or negative values are rejected.
    *
-   * Throws EmitterError if set on a typed handler.
+   * Valid on both typed and wildcard `"*"` subscriptions (since v0.5.3); each
+   * handler keeps its own throttle clock. Useful for per-event HUD throttling,
+   * e.g. a `credits/change` event that fires every frame.
    */
   throttleMs?: number;
 }
@@ -164,8 +166,8 @@ export interface Emitter<Events extends Record<string, unknown>> {
 /**
  * Recoverable emitter error. Thrown by `on()` when `OnOptions` violates a
  * precondition: `captureErrors` set on a wildcard `"*"` subscription;
- * `sampleRate` / `throttleMs` set on a typed subscription; `sampleRate`
- * outside `(0, 1]`; or `throttleMs` negative.
+ * `sampleRate` set on a typed subscription; `sampleRate` outside `(0, 1]`; or
+ * `throttleMs` non-finite or negative.
  *
  * @public
  */
@@ -194,13 +196,13 @@ interface E<H> {
   h: H; // handler (may be a once-wrapper)
   c: (() => void) | undefined; // abortCleanup
   u: H; // user-provided handler (off matching)
-  // v0.3.0: per-handler error policy and wildcard throttle/sample state.
+  // v0.3.0: per-handler error policy and throttle/sample state.
   // Fields typed as `T | undefined` (not just `T`) so that exactOptionalPropertyTypes
   // permits assigning `undefined` in object literals (avoids TS2375).
   ce?: ErrorPolicy | undefined; // captureErrors override (typed only)
   r?: number | undefined; // sampleRate (wildcard only)
-  tm?: number | undefined; // throttleMs (wildcard only)
-  ts?: number | undefined; // last call timestamp — mutated during dispatch (wildcard only)
+  tm?: number | undefined; // throttleMs (typed or wildcard; v0.5.3)
+  ts?: number | undefined; // last call timestamp — mutated during dispatch (throttle clock)
 }
 
 type AH = EventHandler<unknown>;
@@ -251,6 +253,25 @@ function sub<H>(arr: E<H>[], e: E<H>, sig: AbortSignal | undefined): () => void 
 /**
  * Construct a strongly-typed event emitter.
  *
+ * @remarks
+ * Declare the event map with a `type` alias, not an `interface`. The `Events`
+ * generic is constrained to `Record<string, unknown>`, and a *plain* TypeScript
+ * `interface` has no implicit index signature, so it fails the constraint with
+ * *"Index signature for type 'string' is missing in type ..."*. A `type` object
+ * literal satisfies the constraint structurally. (An `interface` with an explicit
+ * index signature or `extends Record<string, unknown>` also compiles, but widens
+ * `keyof Events` to `string`, losing strict event-name checking.)
+ *
+ * ```ts
+ * // ❌ interface — fails the Record<string, unknown> constraint
+ * interface Events { "user:login": { id: string } }
+ * const bus = createEmitter<Events>(); // TS2344
+ *
+ * // ✅ type — satisfies the constraint
+ * type Events = { "user:login": { id: string } };
+ * const bus = createEmitter<Events>();
+ * ```
+ *
  * @example
  * ```ts
  * import { createEmitter } from "aieventjs";
@@ -296,7 +317,9 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
 
   function on(type: string | "*", handler: AH | WH, o?: OnOptions): () => void {
     ck();
-    // v0.3.0 guards: cross-domain options + range checks
+    // v0.3.0 guards: cross-domain options + range checks.
+    // v0.5.3: throttleMs is now valid on typed handlers too (per-handler clock);
+    // sampleRate remains wildcard-only.
     const sr = o?.sampleRate;
     const tm2 = o?.throttleMs;
     if (type === "*") {
@@ -304,7 +327,6 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
         throw new EmitterError("aieventjs: captureErrors invalid on *");
     } else {
       if (sr !== undefined) throw new EmitterError("aieventjs: sampleRate wildcard-only");
-      if (tm2 !== undefined) throw new EmitterError("aieventjs: throttleMs wildcard-only");
     }
     if (sr !== undefined && (!Number.isFinite(sr) || sr <= 0 || sr > 1))
       throw new EmitterError("aieventjs: sampleRate must be in (0,1]");
@@ -343,11 +365,12 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
         u: fn,
         c: undefined,
         ce: ce,
+        tm: tm2,
       };
       const rm = sub(ga(type), e, sig);
       return rm;
     }
-    return sub(ga(type), { h: fn, u: fn, c: undefined, ce: ce }, sig);
+    return sub(ga(type), { h: fn, u: fn, c: undefined, ce: ce, tm: tm2 }, sig);
   }
 
   function once<K extends keyof Events>(type: K, handler: EventHandler<Events[K]>): () => void {
@@ -395,6 +418,11 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
     const ts = (t.get(k) ?? []).slice();
     const ws = w.slice();
     for (const e of ts) {
+      if (e.tm) {
+        const now = Date.now();
+        if (e.ts !== undefined && now - e.ts < e.tm) continue;
+        e.ts = now;
+      }
       try {
         e.h(p);
       } catch (err) {

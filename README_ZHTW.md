@@ -1,14 +1,14 @@
 # aieventjs
 
 [![npm version](https://img.shields.io/npm/v/aieventjs.svg)](https://www.npmjs.com/package/aieventjs)
-[![CI](https://github.com/yshengliao/aieventjs/actions/workflows/ci.yml/badge.svg)](https://github.com/yshengliao/aieventjs/actions/workflows/ci.yml)
+[![CI](https://github.com/islumina/aieventjs/actions/workflows/ci.yml/badge.svg)](https://github.com/islumina/aieventjs/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
 [![AI Generated](https://img.shields.io/badge/AI_Generated-Claude_Code_Opus_4.7_Max-blueviolet.svg)](https://www.anthropic.com/claude-code)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
 
 > 一個小而嚴格的 typed event emitter ── `on()` 回傳 unsubscribe function、內建 `once`、`AbortSignal` 一級公民、`dispose()` 冪等、保留 wildcard `*` handler。形似 mitt 的 API、但裡裡外外都是 ai\*js convention。
 
-隸屬 [ai\*js micro-runtime 生態系](https://github.com/yshengliao) ─ 另見 [aifsmjs](https://github.com/yshengliao/aifsmjs)（FSM）、[aiecsjs](https://github.com/yshengliao/aiecsjs)（ECS）、[aibridgejs](https://github.com/yshengliao/aibridgejs)（cross-context RPC）、[aipooljs](https://github.com/yshengliao/aipooljs)（物件池）、[aiquadtreejs](https://github.com/yshengliao/aiquadtreejs)（空間分割）、[aiaudiojs](https://github.com/yshengliao/aiaudiojs)（Web Audio 薄殼）。
+隸屬 [ai\*js micro-runtime 生態系](https://github.com/islumina) ─ 另見 [aifsmjs](https://github.com/islumina/aifsmjs)（FSM）、[aiecsjs](https://github.com/islumina/aiecsjs)（ECS）、[aibridgejs](https://github.com/islumina/aibridgejs)（cross-context RPC）、[aipooljs](https://github.com/islumina/aipooljs)（物件池）、[aiquadtreejs](https://github.com/islumina/aiquadtreejs)（空間分割）、[aiaudiojs](https://github.com/islumina/aiaudiojs)（Web Audio 薄殼）。
 
 > **狀態：0.5.3。** 完整實作已上線、所有 method 皆可用。Coverage ≥ 95/90/100/100；~1050 B gzip（budget 1100 B）。
 

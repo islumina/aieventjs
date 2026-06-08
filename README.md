@@ -1,14 +1,14 @@
 # aieventjs
 
 [![npm version](https://img.shields.io/npm/v/aieventjs.svg)](https://www.npmjs.com/package/aieventjs)
-[![CI](https://github.com/yshengliao/aieventjs/actions/workflows/ci.yml/badge.svg)](https://github.com/yshengliao/aieventjs/actions/workflows/ci.yml)
+[![CI](https://github.com/islumina/aieventjs/actions/workflows/ci.yml/badge.svg)](https://github.com/islumina/aieventjs/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
 [![AI Generated](https://img.shields.io/badge/AI_Generated-Claude_Code_Opus_4.7_Max-blueviolet.svg)](https://www.anthropic.com/claude-code)
 [![繁體中文](https://img.shields.io/badge/lang-繁體中文-red.svg)](README_ZHTW.md)
 
 > A small, strict, typed event emitter — `on()` returns an unsubscribe function, `once` is built-in, `AbortSignal` is first-class, `dispose()` is idempotent, wildcard `*` handlers are preserved. Mitt-shaped API where it counts; ai\*js conventions everywhere else.
 
-Part of the [ai\*js micro-runtime ecosystem](https://github.com/yshengliao) — see also [aifsmjs](https://github.com/yshengliao/aifsmjs) (FSM), [aiecsjs](https://github.com/yshengliao/aiecsjs) (ECS), [aibridgejs](https://github.com/yshengliao/aibridgejs) (cross-context RPC), [aipooljs](https://github.com/yshengliao/aipooljs) (object pool), [aiquadtreejs](https://github.com/yshengliao/aiquadtreejs) (spatial partitioning), and [aiaudiojs](https://github.com/yshengliao/aiaudiojs) (Web Audio shell).
+Part of the [ai\*js micro-runtime ecosystem](https://github.com/islumina) — see also [aifsmjs](https://github.com/islumina/aifsmjs) (FSM), [aiecsjs](https://github.com/islumina/aiecsjs) (ECS), [aibridgejs](https://github.com/islumina/aibridgejs) (cross-context RPC), [aipooljs](https://github.com/islumina/aipooljs) (object pool), [aiquadtreejs](https://github.com/islumina/aiquadtreejs) (spatial partitioning), and [aiaudiojs](https://github.com/islumina/aiaudiojs) (Web Audio shell).
 
 > **Status: 0.5.3.** Full implementation shipped; all methods are live. Coverage ≥ 95/90/100/100; ~1050 B gzip (budget 1100 B).
 

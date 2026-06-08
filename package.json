@@ -1,6 +1,6 @@
 {
   "name": "aieventjs",
-  "version": "0.5.3",
+  "version": "0.5.5",
   "description": "Small, strict, typed event emitter — on() returns an unsubscribe function, once is built-in, AbortSignal is first-class, dispose() is idempotent, wildcard '*' handlers preserved. Mitt-shaped API; ai*js conventions everywhere else.",
   "keywords": [
     "event-emitter",
@@ -15,13 +15,13 @@
   ],
   "author": "yshengliao",
   "license": "MIT",
-  "homepage": "https://github.com/yshengliao/aieventjs#readme",
+  "homepage": "https://github.com/islumina/aieventjs#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yshengliao/aieventjs.git"
+    "url": "git+https://github.com/islumina/aieventjs.git"
   },
   "bugs": {
-    "url": "https://github.com/yshengliao/aieventjs/issues"
+    "url": "https://github.com/islumina/aieventjs/issues"
   },
   "type": "module",
   "sideEffects": false,

@@ -10,7 +10,7 @@
 
 Part of the [ai\*js micro-runtime ecosystem](https://github.com/islumina) — see also [aifsmjs](https://github.com/islumina/aifsmjs) (FSM), [aiecsjs](https://github.com/islumina/aiecsjs) (ECS), [aibridgejs](https://github.com/islumina/aibridgejs) (cross-context RPC), [aipooljs](https://github.com/islumina/aipooljs) (object pool), [aiquadtreejs](https://github.com/islumina/aiquadtreejs) (spatial partitioning), and [aiaudiojs](https://github.com/islumina/aiaudiojs) (Web Audio shell).
 
-> **Status: 0.5.3.** Full implementation shipped; all methods are live. Coverage ≥ 95/90/100/100; ~1050 B gzip (budget 1100 B).
+> **Status: 0.5.5.** Full implementation shipped; all methods are live. Coverage ≥ 95/90/100/100; ~1050 B gzip (budget 1100 B).
 
 ---
 

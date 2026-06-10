@@ -10,7 +10,7 @@
 
 Part of the [ai\*js micro-runtime ecosystem](https://github.com/islumina) — see also [aifsmjs](https://github.com/islumina/aifsmjs) (FSM), [aiecsjs](https://github.com/islumina/aiecsjs) (ECS), [aibridgejs](https://github.com/islumina/aibridgejs) (cross-context RPC), [aipooljs](https://github.com/islumina/aipooljs) (object pool), [aiquadtreejs](https://github.com/islumina/aiquadtreejs) (spatial partitioning), and [aiaudiojs](https://github.com/islumina/aiaudiojs) (Web Audio shell).
 
-> **Status: 0.5.3.** Full implementation shipped; all methods are live. Coverage ≥ 95/90/100/100; ~1050 B gzip (budget 1100 B).
+> **Status: 0.5.5.** Full implementation shipped; all methods are live. Coverage ≥ 95/90/100/100; ~1050 B gzip (budget 1100 B).
 
 ---
 
@@ -119,6 +119,9 @@ interface OnOptions {
   captureErrors?: boolean | ((err: unknown, type: string, payload: unknown) => void); // typed only
   sampleRate?: number;  // wildcard "*" only — probability in (0, 1]
   throttleMs?: number;  // typed or wildcard — per-handler leading-edge throttle, uses Date.now()
+                        // Note: Date.now() is not monotonic; a system-clock regression silently
+                        // mutes the handler until wall time re-passes the stored timestamp.
+                        // Switching to performance.now() is deferred to the next minor. (EVT-R-02)
 }
 
 interface EmitterOptions {
@@ -134,6 +137,9 @@ interface Emitter<Events extends Record<string, unknown>> {
   on<K extends keyof Events>(type: K, handler: EventHandler<Events[K]>, opts?: OnOptions): () => void;
   on(type: "*", handler: WildcardHandler<Events>, opts?: OnOptions): () => void;
   once<K extends keyof Events>(type: K, handler: EventHandler<Events[K]>): () => void;
+  // Note: once() only accepts typed event keys. For wildcard-once semantics use
+  // on("*", handler, { once: true }) — the handler receives (type, payload) as
+  // WildcardHandler, not (payload) as EventHandler. (EVT-B-02)
   off<K extends keyof Events>(type: K, handler?: EventHandler<Events[K]>): void;
   off(type: "*", handler?: WildcardHandler<Events>): void;
   emit<K extends keyof Events>(type: K, payload: Events[K]): void;

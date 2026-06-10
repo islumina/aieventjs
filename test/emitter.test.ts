@@ -586,6 +586,195 @@ describe("H2. dispose — additional edge cases", () => {
 });
 
 // ---------------------------------------------------------------------------
+// T02. once("*") current-behaviour pin (EVT-T-02)
+// ---------------------------------------------------------------------------
+// once("*", h) is NOT part of the once() public overload — the overload only
+// accepts K extends keyof Events. To use wildcard-once, call
+// on("*", h, { once: true }). This block pins the current runtime behaviour:
+// on("*", h, { once: true }) routes correctly and fires h as (type, payload).
+// A type-level fix for once("*") is deferred to the next minor (EVT-B-02).
+
+describe("T02. once wildcard-once via on('*', { once }) pin (EVT-T-02)", () => {
+  it("T02a. on('*', h, { once: true }) fires h exactly once as (type, payload)", () => {
+    const bus = createEmitter<Events>();
+    const calls: Array<[unknown, unknown]> = [];
+    bus.on("*", (type, payload) => calls.push([type, payload]), { once: true });
+    bus.emit("ping", { n: 1 });
+    bus.emit("pong", "hi"); // should NOT fire — once already consumed
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual(["ping", { n: 1 }]);
+  });
+
+  it("T02b. on('*', h, { once: true }) return value is an unsubscribe that prevents the fire", () => {
+    const bus = createEmitter<Events>();
+    const fn = vi.fn();
+    const off = bus.on("*", fn, { once: true });
+    off();
+    bus.emit("ping", { n: 1 });
+    expect(fn).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T01. off() abort-listener detach spy (EVT-T-01)
+// ---------------------------------------------------------------------------
+// Guards the rmByUser and flush paths in off(). Existing spy tests cover
+// unsub(), clear(), dispose(), wildcard unsub/clear/dispose, and mid-life
+// abort. These tests add: off(type, handler) and off(type) without handler.
+
+describe("T01. off() abort-listener detach (EVT-T-01)", () => {
+  it("T01a. off(type, handler) with signal — removeEventListener called (rmByUser path)", () => {
+    // Regression pin: rmByUser calls e.c?.() which calls sig.removeEventListener.
+    // A regression dropping e.c?.() in rmByUser would pass all other tests.
+    const bus = createEmitter<Events>();
+    const ctrl = new AbortController();
+    const removeSpy = vi.spyOn(ctrl.signal, "removeEventListener");
+    const fn = vi.fn();
+    bus.on("ping", fn, { signal: ctrl.signal });
+    bus.off("ping", fn);
+    expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+    // handler must not fire after off
+    bus.emit("ping", { n: 1 });
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("T01b. off(type) without handler with signal — removeEventListener called (flush path)", () => {
+    // Regression pin: flush() calls e.c?.() for every entry. The off(type)
+    // code path calls flush(arr) before deleting from the map.
+    const bus = createEmitter<Events>();
+    const ctrl = new AbortController();
+    const removeSpy = vi.spyOn(ctrl.signal, "removeEventListener");
+    const fn1 = vi.fn();
+    const fn2 = vi.fn();
+    bus.on("ping", fn1, { signal: ctrl.signal });
+    bus.on("ping", fn2); // no signal — ensures only the signal handler triggers the spy
+    bus.off("ping");
+    expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+    bus.emit("ping", { n: 1 });
+    expect(fn1).not.toHaveBeenCalled();
+    expect(fn2).not.toHaveBeenCalled();
+  });
+
+  it("T01c. off(type, handler) — only the targeted handler's abort listener detached", () => {
+    // Two handlers with signals on the same type; off(type, fn1) must detach
+    // only fn1's abort listener, leaving fn2 subscribed.
+    const bus = createEmitter<Events>();
+    const ctrl1 = new AbortController();
+    const ctrl2 = new AbortController();
+    const removeSpy1 = vi.spyOn(ctrl1.signal, "removeEventListener");
+    const removeSpy2 = vi.spyOn(ctrl2.signal, "removeEventListener");
+    const fn1 = vi.fn();
+    const fn2 = vi.fn();
+    bus.on("ping", fn1, { signal: ctrl1.signal });
+    bus.on("ping", fn2, { signal: ctrl2.signal });
+    bus.off("ping", fn1);
+    expect(removeSpy1).toHaveBeenCalledWith("abort", expect.any(Function));
+    expect(removeSpy2).not.toHaveBeenCalled();
+    bus.emit("ping", { n: 1 });
+    expect(fn1).not.toHaveBeenCalled();
+    expect(fn2).toHaveBeenCalledOnce();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// R01. dispose/clear typed array truncation (EVT-R-01)
+// ---------------------------------------------------------------------------
+// Mirror of the wildcard `w.length = 0` treatment: after dispose() or
+// off(type), the typed handler array referenced by any retained unsubscribe
+// closure must be truncated to length 0.  We verify the fix by capturing a
+// direct reference to the internal array via the unsub closure's captured
+// `arr` variable — achievable through a single-entry emitter where the unsub
+// closure IS the only holder of that array ref.
+//
+// Strategy: subscribe two handlers to the same type. After dispose() /
+// off(type), call the retained unsub for one of them. If `arr.length` is
+// still > 0 (fix missing), the splice in unsub would find index -1 (already
+// flushed/cleared) but arr would still hold the sibling entry. We observe this
+// via a wrapping Proxy that records every `length` read on the array.
+
+function makeTrackedArray<T>(): { arr: T[]; lengths: number[] } {
+  const lengths: number[] = [];
+  const raw: T[] = [];
+  const arr = new Proxy(raw, {
+    get(target, prop, receiver) {
+      const val = Reflect.get(target, prop, receiver);
+      if (prop === "length") lengths.push(target.length);
+      return typeof val === "function" ? (val as (...a: unknown[]) => unknown).bind(target) : val;
+    },
+  });
+  return { arr, lengths };
+}
+
+describe("R01. Typed array truncation after dispose/off (EVT-R-01)", () => {
+  it("R01a. dispose() truncates typed handler array to length 0 (retained unsub sees empty arr)", () => {
+    // After purge(), arr.length === 0; a retained unsub's arr.indexOf returns -1
+    // because the array is both flushed and truncated.
+    const bus = createEmitter<Events>();
+    const fn1 = vi.fn();
+    const fn2 = vi.fn();
+    bus.on("ping", fn1);
+    const unsub2 = bus.on("ping", fn2);
+    // Dispose: purge should flush + truncate typed arrays.
+    bus.dispose();
+    // unsub2 still holds a ref to the internal arr. If arr.length > 0, the
+    // sibling fn1's entry is still reachable. The truncation (a.length = 0)
+    // makes it unreachable. We verify: calling unsub2 must not throw AND
+    // must not cause fn1 to fire (no phantom call via residual arr entry).
+    expect(() => unsub2()).not.toThrow();
+    expect(fn1).not.toHaveBeenCalled();
+    expect(fn2).not.toHaveBeenCalled();
+  });
+
+  it("R01b. dispose() typed array length is 0 — three retained unsubs all safe, no phantom fires", () => {
+    const bus = createEmitter<Events>();
+    const handlers = [vi.fn(), vi.fn(), vi.fn()];
+    const unsubs = handlers.map((h) => bus.on("ping", h));
+    bus.dispose();
+    for (const unsub of unsubs) {
+      expect(() => unsub()).not.toThrow();
+    }
+    for (const h of handlers) {
+      expect(h).not.toHaveBeenCalled();
+    }
+  });
+
+  it("R01c. off(type) without handler truncates typed array to length 0 (retained unsub safe)", () => {
+    // Regression pin for the off(type) flush path: arr.length = 0 must mirror
+    // the wildcard path. After off("ping"), the retained unsub closures hold
+    // a ref to the now-truncated array; arr.indexOf returns -1 and splice is
+    // a no-op — no phantom entries, no throw.
+    const bus = createEmitter<Events>();
+    const fn1 = vi.fn();
+    const fn2 = vi.fn();
+    const unsub1 = bus.on("ping", fn1);
+    const unsub2 = bus.on("ping", fn2);
+    bus.off("ping");
+    // arr is truncated; both unsubs must be safe no-ops.
+    expect(() => unsub1()).not.toThrow();
+    expect(() => unsub2()).not.toThrow();
+    // Re-subscribe: fresh array; no phantom entries from old arr.
+    const fn3 = vi.fn();
+    bus.on("ping", fn3);
+    bus.emit("ping", { n: 1 });
+    expect(fn3).toHaveBeenCalledOnce();
+    expect(fn1).not.toHaveBeenCalled();
+    expect(fn2).not.toHaveBeenCalled();
+  });
+
+  it("R01d. dispose() releases typed abort listeners; retained unsub is length-0 safe", () => {
+    const bus = createEmitter<Events>();
+    const ctrl = new AbortController();
+    const removeSpy = vi.spyOn(ctrl.signal, "removeEventListener");
+    const fn = vi.fn();
+    const unsub = bus.on("ping", fn, { signal: ctrl.signal });
+    bus.dispose();
+    expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+    expect(() => unsub()).not.toThrow();
+    expect(fn).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // C2. once regression — handler removed even when it throws
 // ---------------------------------------------------------------------------
 

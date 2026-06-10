@@ -184,6 +184,34 @@ describe("D. Combined sampleRate + throttleMs", () => {
     bus.emit("ping", { n: 2 });
     expect(fn).toHaveBeenCalledTimes(1);
   });
+
+  it("D3. wildcard once + sampleRate: sample miss does NOT consume the once token (EVT-T-03)", () => {
+    // Pin: the sampleRate gate runs at :433 BEFORE e.h is called. When the
+    // sample gate drops the dispatch (random >= sampleRate), e.h is never
+    // invoked — and since the once-wrapper's rm() lives INSIDE e.h, it is
+    // also never called. The once token is preserved for the next dispatch
+    // that passes the sample gate. Analogous to D1 (sample+throttle) which
+    // already pins timestamp-not-updated-on-miss behaviour.
+    const bus = createEmitter<Events>();
+    const fn = vi.fn();
+    bus.on("*", fn, { sampleRate: 0.5, once: true });
+
+    // First dispatch: random=0.6 → sample miss → once NOT consumed, fn NOT called
+    vi.spyOn(Math, "random").mockReturnValue(0.6);
+    bus.emit("ping", { n: 1 });
+    expect(fn).toHaveBeenCalledTimes(0);
+
+    // Second dispatch: random=0.4 → sample pass → once fires and is consumed
+    vi.spyOn(Math, "random").mockReturnValue(0.4);
+    bus.emit("ping", { n: 2 });
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(fn).toHaveBeenCalledWith("ping", { n: 2 });
+
+    // Third dispatch: once already consumed — fn must NOT fire again
+    vi.spyOn(Math, "random").mockReturnValue(0.4);
+    bus.emit("pong", "hi");
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-06-10
+
+### Fixed
+
+- `purge()` and `off(type)` now truncate the typed handler arrays they flush (mirroring the wildcard array's existing handling), so a retained unsubscribe closure no longer pins every sibling handler entry against GC. (Review wave 2026-06-10, EVT-R-01.)
+
+### Changed
+
+- Supply-chain and release hardening: CI/publish actions SHA-pinned, npm CLI pinned (`11.16.0`) in the OIDC publish job, `permissions: contents: read` on CI, job timeouts, tag↔package.json version guard, `npm publish --ignore-scripts`, and **manual publish dispatch now defaults to dry-run** (it previously performed a real publish). New `verify:docs` banner gate; `typecheck` now also type-checks the test suite; `llms-full.txt` embeds `STABILITY.md`.
+
+### Docs
+
+- `STABILITY.md` freeze table now records `OnOptions.throttleMs` as **typed or wildcard since 0.5.3** (the table previously only listed the 0.3.0 wildcard-only surface). (EVT-B-01.)
+- `once("*")` is documented (and pinned by test) as routing through the wildcard `on()` overload with `(type, payload)` handler arguments; the wall-clock (`Date.now()`) limitation of `throttleMs` under backwards clock steps is documented. New pins for abort-listener detach on `off()` paths and `once` × `sampleRate` interaction.
+
 ## [0.5.5] - 2026-06-08
 
 ### Changed

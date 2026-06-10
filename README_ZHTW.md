@@ -10,7 +10,7 @@
 
 隸屬 [ai\*js micro-runtime 生態系](https://github.com/islumina) ─ 另見 [aifsmjs](https://github.com/islumina/aifsmjs)（FSM）、[aiecsjs](https://github.com/islumina/aiecsjs)（ECS）、[aibridgejs](https://github.com/islumina/aibridgejs)（cross-context RPC）、[aipooljs](https://github.com/islumina/aipooljs)（物件池）、[aiquadtreejs](https://github.com/islumina/aiquadtreejs)（空間分割）、[aiaudiojs](https://github.com/islumina/aiaudiojs)（Web Audio 薄殼）。
 
-> **狀態：0.5.5。** 完整實作已上線、所有 method 皆可用。Coverage ≥ 95/90/100/100；~1050 B gzip（budget 1100 B）。
+> **狀態：0.5.6。** 完整實作已上線、所有 method 皆可用。Coverage ≥ 95/90/100/100；~1050 B gzip（budget 1100 B）。
 
 ---
 

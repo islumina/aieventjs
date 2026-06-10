@@ -367,6 +367,7 @@ Tags follow Node's stability index conventions:
 | `OnOptions.captureErrors` | [stable] | 0.3.0 |
 | `OnOptions.sampleRate` (wildcard only) | [stable] | 0.3.0 |
 | `OnOptions.throttleMs` (wildcard only) | [stable] | 0.3.0 |
+| `OnOptions.throttleMs` (typed or wildcard) | [stable] | 0.5.3 |
 | `EmitterError` / `EmitterDisposedError` | [stable] | 0.1.0 |
 
 > **Stability freeze (0.4.0).** Every `[stable]` row above is frozen for the 1.x line: once 1.0 ships, these signatures, error names, and default behaviours will not change without a major version bump. v0.4.0 adds no runtime API — it formalises the 0.3.x surface as 1.0-track.

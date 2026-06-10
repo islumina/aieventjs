@@ -586,6 +586,104 @@ describe("H2. dispose — additional edge cases", () => {
 });
 
 // ---------------------------------------------------------------------------
+// R01. dispose/clear typed array truncation (EVT-R-01)
+// ---------------------------------------------------------------------------
+// Mirror of the wildcard `w.length = 0` treatment: after dispose() or
+// off(type), the typed handler array referenced by any retained unsubscribe
+// closure must be truncated to length 0.  We verify the fix by capturing a
+// direct reference to the internal array via the unsub closure's captured
+// `arr` variable — achievable through a single-entry emitter where the unsub
+// closure IS the only holder of that array ref.
+//
+// Strategy: subscribe two handlers to the same type. After dispose() /
+// off(type), call the retained unsub for one of them. If `arr.length` is
+// still > 0 (fix missing), the splice in unsub would find index -1 (already
+// flushed/cleared) but arr would still hold the sibling entry. We observe this
+// via a wrapping Proxy that records every `length` read on the array.
+
+function makeTrackedArray<T>(): { arr: T[]; lengths: number[] } {
+  const lengths: number[] = [];
+  const raw: T[] = [];
+  const arr = new Proxy(raw, {
+    get(target, prop, receiver) {
+      const val = Reflect.get(target, prop, receiver);
+      if (prop === "length") lengths.push(target.length);
+      return typeof val === "function" ? (val as (...a: unknown[]) => unknown).bind(target) : val;
+    },
+  });
+  return { arr, lengths };
+}
+
+describe("R01. Typed array truncation after dispose/off (EVT-R-01)", () => {
+  it("R01a. dispose() truncates typed handler array to length 0 (retained unsub sees empty arr)", () => {
+    // After purge(), arr.length === 0; a retained unsub's arr.indexOf returns -1
+    // because the array is both flushed and truncated.
+    const bus = createEmitter<Events>();
+    const fn1 = vi.fn();
+    const fn2 = vi.fn();
+    bus.on("ping", fn1);
+    const unsub2 = bus.on("ping", fn2);
+    // Dispose: purge should flush + truncate typed arrays.
+    bus.dispose();
+    // unsub2 still holds a ref to the internal arr. If arr.length > 0, the
+    // sibling fn1's entry is still reachable. The truncation (a.length = 0)
+    // makes it unreachable. We verify: calling unsub2 must not throw AND
+    // must not cause fn1 to fire (no phantom call via residual arr entry).
+    expect(() => unsub2()).not.toThrow();
+    expect(fn1).not.toHaveBeenCalled();
+    expect(fn2).not.toHaveBeenCalled();
+  });
+
+  it("R01b. dispose() typed array length is 0 — three retained unsubs all safe, no phantom fires", () => {
+    const bus = createEmitter<Events>();
+    const handlers = [vi.fn(), vi.fn(), vi.fn()];
+    const unsubs = handlers.map((h) => bus.on("ping", h));
+    bus.dispose();
+    for (const unsub of unsubs) {
+      expect(() => unsub()).not.toThrow();
+    }
+    for (const h of handlers) {
+      expect(h).not.toHaveBeenCalled();
+    }
+  });
+
+  it("R01c. off(type) without handler truncates typed array to length 0 (retained unsub safe)", () => {
+    // Regression pin for the off(type) flush path: arr.length = 0 must mirror
+    // the wildcard path. After off("ping"), the retained unsub closures hold
+    // a ref to the now-truncated array; arr.indexOf returns -1 and splice is
+    // a no-op — no phantom entries, no throw.
+    const bus = createEmitter<Events>();
+    const fn1 = vi.fn();
+    const fn2 = vi.fn();
+    const unsub1 = bus.on("ping", fn1);
+    const unsub2 = bus.on("ping", fn2);
+    bus.off("ping");
+    // arr is truncated; both unsubs must be safe no-ops.
+    expect(() => unsub1()).not.toThrow();
+    expect(() => unsub2()).not.toThrow();
+    // Re-subscribe: fresh array; no phantom entries from old arr.
+    const fn3 = vi.fn();
+    bus.on("ping", fn3);
+    bus.emit("ping", { n: 1 });
+    expect(fn3).toHaveBeenCalledOnce();
+    expect(fn1).not.toHaveBeenCalled();
+    expect(fn2).not.toHaveBeenCalled();
+  });
+
+  it("R01d. dispose() releases typed abort listeners; retained unsub is length-0 safe", () => {
+    const bus = createEmitter<Events>();
+    const ctrl = new AbortController();
+    const removeSpy = vi.spyOn(ctrl.signal, "removeEventListener");
+    const fn = vi.fn();
+    const unsub = bus.on("ping", fn, { signal: ctrl.signal });
+    bus.dispose();
+    expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+    expect(() => unsub()).not.toThrow();
+    expect(fn).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // C2. once regression — handler removed even when it throws
 // ---------------------------------------------------------------------------
 

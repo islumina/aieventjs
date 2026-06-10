@@ -392,6 +392,7 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
     if (arr === undefined) return;
     if (handler === undefined) {
       flush(arr);
+      arr.length = 0;
       t.delete(type);
     } else {
       rmByUser(arr, handler as AH);
@@ -445,7 +446,10 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
   }
 
   function purge(): void {
-    for (const a of t.values()) flush(a);
+    for (const a of t.values()) {
+      flush(a);
+      a.length = 0;
+    }
     flush(w);
     t.clear();
     w.length = 0;

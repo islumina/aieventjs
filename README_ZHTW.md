@@ -119,6 +119,9 @@ interface OnOptions {
   captureErrors?: boolean | ((err: unknown, type: string, payload: unknown) => void); // 僅限 typed handler
   sampleRate?: number;  // wildcard "*" only — 機率 (0, 1]
   throttleMs?: number;  // typed 或 wildcard — per-handler leading-edge throttle，使用 Date.now()
+                        // 注意：Date.now() 非單調時鐘；系統時鐘往回跳時，handler 會被靜默
+                        // mute 直到 wall time 再次超過紀錄的時間戳。切換 performance.now()
+                        // 延至下個 minor。（EVT-R-02）
 }
 
 interface EmitterOptions {
@@ -133,6 +136,9 @@ interface Emitter<Events extends Record<string, unknown>> {
   on<K extends keyof Events>(type: K, handler: EventHandler<Events[K]>, opts?: OnOptions): () => void;
   on(type: "*", handler: WildcardHandler<Events>, opts?: OnOptions): () => void;
   once<K extends keyof Events>(type: K, handler: EventHandler<Events[K]>): () => void;
+  // 注意：once() 只接受 typed 事件 key。wildcard-once 請改用
+  // on("*", handler, { once: true })——handler 收 (type, payload)
+  // 而非 (payload)。型別層修正延至下個 minor。（EVT-B-02）
   off<K extends keyof Events>(type: K, handler?: EventHandler<Events[K]>): void;
   off(type: "*", handler?: WildcardHandler<Events>): void;
   emit<K extends keyof Events>(type: K, payload: Events[K]): void;

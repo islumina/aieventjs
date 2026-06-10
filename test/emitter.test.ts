@@ -586,6 +586,36 @@ describe("H2. dispose — additional edge cases", () => {
 });
 
 // ---------------------------------------------------------------------------
+// T02. once("*") current-behaviour pin (EVT-T-02)
+// ---------------------------------------------------------------------------
+// once("*", h) is NOT part of the once() public overload — the overload only
+// accepts K extends keyof Events. To use wildcard-once, call
+// on("*", h, { once: true }). This block pins the current runtime behaviour:
+// on("*", h, { once: true }) routes correctly and fires h as (type, payload).
+// A type-level fix for once("*") is deferred to the next minor (EVT-B-02).
+
+describe("T02. once wildcard-once via on('*', { once }) pin (EVT-T-02)", () => {
+  it("T02a. on('*', h, { once: true }) fires h exactly once as (type, payload)", () => {
+    const bus = createEmitter<Events>();
+    const calls: Array<[unknown, unknown]> = [];
+    bus.on("*", (type, payload) => calls.push([type, payload]), { once: true });
+    bus.emit("ping", { n: 1 });
+    bus.emit("pong", "hi"); // should NOT fire — once already consumed
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual(["ping", { n: 1 }]);
+  });
+
+  it("T02b. on('*', h, { once: true }) return value is an unsubscribe that prevents the fire", () => {
+    const bus = createEmitter<Events>();
+    const fn = vi.fn();
+    const off = bus.on("*", fn, { once: true });
+    off();
+    bus.emit("ping", { n: 1 });
+    expect(fn).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // T01. off() abort-listener detach spy (EVT-T-01)
 // ---------------------------------------------------------------------------
 // Guards the rmByUser and flush paths in off(). Existing spy tests cover

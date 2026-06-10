@@ -84,11 +84,23 @@ export interface OnOptions {
    * Per-handler leading-edge throttle. Minimum milliseconds between successive
    * calls to this handler. The first dispatch after subscription always fires;
    * subsequent dispatches within `throttleMs` are dropped (not queued).
-   * Uses Date.now(). 0 = no throttle. Non-finite or negative values are rejected.
+   * Uses `Date.now()`. 0 = no throttle. Non-finite or negative values are
+   * rejected at `on()` time.
    *
    * Valid on both typed and wildcard `"*"` subscriptions (since v0.5.3); each
    * handler keeps its own throttle clock. Useful for per-event HUD throttling,
    * e.g. a `credits/change` event that fires every frame.
+   *
+   * @remarks
+   * **Wall-clock limitation (EVT-R-02):** the throttle clock uses
+   * `Date.now()`, which is not monotonic. If the system clock regresses (NTP
+   * correction, manual change) by Δ ms after a dispatch, `now - e.ts` will be
+   * negative and every subsequent dispatch will be dropped until wall time
+   * re-passes the stored timestamp — up to Δ ms of silence with no error.
+   * For most web/game use cases this is acceptable; switching to
+   * `performance.now()` (monotonic) would be a surface-level behaviour change
+   * and is deferred to the next minor release window. Document this trade-off
+   * at integration if clock stability is a concern.
    */
   throttleMs?: number;
 }
@@ -122,6 +134,18 @@ export interface Emitter<Events extends Record<string, unknown>> {
   /**
    * Subscribe and auto-remove after the first dispatch. Equivalent to
    * `on(type, handler, { once: true })`.
+   *
+   * @remarks
+   * **`"*"` is not a valid `type` argument for `once()`.** The public
+   * overload only accepts `K extends keyof Events`; the wildcard `"*"` is
+   * handled by the `on("*", handler, { once: true })` overload instead.
+   * Passing `"*"` to `once()` would route through `on()` with the wildcard
+   * branch and invoke the handler as `(type, payload)` — the first positional
+   * argument would be the event *name*, not the payload — which diverges from
+   * the `EventHandler<payload>` type implied by the `once` signature. Use
+   * `on("*", handler, { once: true })` explicitly for wildcard-once semantics.
+   * This behaviour is intentional and deferred for a type-level fix to the
+   * next minor that can introduce a breaking overload change. (EVT-B-02)
    */
   once<K extends keyof Events>(type: K, handler: EventHandler<Events[K]>): () => void;
 

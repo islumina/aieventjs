@@ -586,6 +586,67 @@ describe("H2. dispose — additional edge cases", () => {
 });
 
 // ---------------------------------------------------------------------------
+// T01. off() abort-listener detach spy (EVT-T-01)
+// ---------------------------------------------------------------------------
+// Guards the rmByUser and flush paths in off(). Existing spy tests cover
+// unsub(), clear(), dispose(), wildcard unsub/clear/dispose, and mid-life
+// abort. These tests add: off(type, handler) and off(type) without handler.
+
+describe("T01. off() abort-listener detach (EVT-T-01)", () => {
+  it("T01a. off(type, handler) with signal — removeEventListener called (rmByUser path)", () => {
+    // Regression pin: rmByUser calls e.c?.() which calls sig.removeEventListener.
+    // A regression dropping e.c?.() in rmByUser would pass all other tests.
+    const bus = createEmitter<Events>();
+    const ctrl = new AbortController();
+    const removeSpy = vi.spyOn(ctrl.signal, "removeEventListener");
+    const fn = vi.fn();
+    bus.on("ping", fn, { signal: ctrl.signal });
+    bus.off("ping", fn);
+    expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+    // handler must not fire after off
+    bus.emit("ping", { n: 1 });
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("T01b. off(type) without handler with signal — removeEventListener called (flush path)", () => {
+    // Regression pin: flush() calls e.c?.() for every entry. The off(type)
+    // code path calls flush(arr) before deleting from the map.
+    const bus = createEmitter<Events>();
+    const ctrl = new AbortController();
+    const removeSpy = vi.spyOn(ctrl.signal, "removeEventListener");
+    const fn1 = vi.fn();
+    const fn2 = vi.fn();
+    bus.on("ping", fn1, { signal: ctrl.signal });
+    bus.on("ping", fn2); // no signal — ensures only the signal handler triggers the spy
+    bus.off("ping");
+    expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+    bus.emit("ping", { n: 1 });
+    expect(fn1).not.toHaveBeenCalled();
+    expect(fn2).not.toHaveBeenCalled();
+  });
+
+  it("T01c. off(type, handler) — only the targeted handler's abort listener detached", () => {
+    // Two handlers with signals on the same type; off(type, fn1) must detach
+    // only fn1's abort listener, leaving fn2 subscribed.
+    const bus = createEmitter<Events>();
+    const ctrl1 = new AbortController();
+    const ctrl2 = new AbortController();
+    const removeSpy1 = vi.spyOn(ctrl1.signal, "removeEventListener");
+    const removeSpy2 = vi.spyOn(ctrl2.signal, "removeEventListener");
+    const fn1 = vi.fn();
+    const fn2 = vi.fn();
+    bus.on("ping", fn1, { signal: ctrl1.signal });
+    bus.on("ping", fn2, { signal: ctrl2.signal });
+    bus.off("ping", fn1);
+    expect(removeSpy1).toHaveBeenCalledWith("abort", expect.any(Function));
+    expect(removeSpy2).not.toHaveBeenCalled();
+    bus.emit("ping", { n: 1 });
+    expect(fn1).not.toHaveBeenCalled();
+    expect(fn2).toHaveBeenCalledOnce();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // R01. dispose/clear typed array truncation (EVT-R-01)
 // ---------------------------------------------------------------------------
 // Mirror of the wildcard `w.length = 0` treatment: after dispose() or

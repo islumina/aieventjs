@@ -13,181 +13,70 @@ The short index lives at `llms.txt` (see https://llmstxt.org/).
 
 # aieventjs
 
-[![npm version](https://img.shields.io/npm/v/aieventjs.svg)](https://www.npmjs.com/package/aieventjs)
-[![CI](https://github.com/islumina/aieventjs/actions/workflows/ci.yml/badge.svg)](https://github.com/islumina/aieventjs/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
-[![AI Generated](https://img.shields.io/badge/AI_Generated-Claude_Code_Opus_4.7_Max-blueviolet.svg)](https://www.anthropic.com/claude-code)
-[![繁體中文](https://img.shields.io/badge/lang-繁體中文-red.svg)](README_ZHTW.md)
+Small, strict, typed event emitter with ai*js lifecycle conventions: `on()` returns unsubscribe, `once` is built in, `AbortSignal` is first-class, wildcard handlers are supported, and `dispose()` is idempotent.
 
-> A small, strict, typed event emitter — `on()` returns an unsubscribe function, `once` is built-in, `AbortSignal` is first-class, `dispose()` is idempotent, wildcard `*` handlers are preserved. Mitt-shaped API where it counts; ai\*js conventions everywhere else.
+> **Status: 0.5.6 - stable 1.0-track surface.** The root entry is the public API.
 
-Part of the [ai\*js micro-runtime ecosystem](https://github.com/islumina) — see also [aifsmjs](https://github.com/islumina/aifsmjs) (FSM), [aiecsjs](https://github.com/islumina/aiecsjs) (ECS), [aibridgejs](https://github.com/islumina/aibridgejs) (cross-context RPC), [aipooljs](https://github.com/islumina/aipooljs) (object pool), [aiquadtreejs](https://github.com/islumina/aiquadtreejs) (spatial partitioning), and [aiaudiojs](https://github.com/islumina/aiaudiojs) (Web Audio shell).
-
-> **Status: 0.5.6.** Full implementation shipped; all methods are live. Coverage ≥ 95/90/100/100; ~1050 B gzip (budget 1100 B).
-
----
-
-## Why aieventjs
-
-Why not just use `mitt`? Honest answer: `mitt` is the right choice for many projects — it's MIT, ~282 B gzipped, and the API is genuinely well-shaped. We evaluated it and chose to write from scratch instead. Three reasons:
-
-- **mitt has been unmaintained since 2023-07-04.** The PRs the community most wants — `unsubscribe`-returning `on()`, `AbortSignal`, `sideEffects: false`, nodenext compatibility — are all open and untouched. Forking would mean shipping a copy with our name on it; the upstream couldn't accept improvements back even if we wanted.
-- **The implementation is ~35 lines of pure logic.** "Fork and improve" doesn't really exist at that size class — any non-trivial change is a rewrite, and the cost of carrying the upstream copyright notice exceeds the benefit.
-- **ai\*js conventions are pervasive enough that fitting them onto mitt's API surface would change every method signature.** `on()` returning `void` vs. returning an unsubscribe is the visible difference; the strict TypeScript posture (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, no `!` non-null assertions) is the invisible one that touches every line.
-
-So `aieventjs` is the ai\*js-shaped event emitter:
-
-- **`on()` returns an unsubscribe function.** Cleanup via the standard "call this to undo" idiom — closes over nothing, survives handler renames, drops in to `$effect()` / `onScopeDispose()` / `useEffect` cleanup without ceremony.
-- **`AbortSignal` everywhere it makes sense.** `on(type, handler, { signal })` removes the handler when the signal aborts. Pre-aborted signals never register. The whole library uses the same cancellation primitive as `fetch` and the rest of the platform.
-- **`dispose()` is idempotent.** Post-dispose `on` / `emit` / `once` throw `EmitterDisposedError`. This is the family-wide convention; an emitter that "looks alive but does nothing" after teardown is the canonical leak vector and we refuse to ship it.
-- **Wildcard `*` is preserved.** `bus.on("*", (type, payload) => ...)` works exactly like in `mitt`; wildcard handlers fire AFTER type-matched handlers. ~80 B gzip cost; kept to make migration mechanical.
-- **Handler-array snapshot on `emit`.** Removing a handler inside its own callback does not skip subsequent handlers (mitt has this since 2.x; preserved).
-- **Functional, destructurable.** `const { on, emit } = bus` works — no `this` capture anywhere.
-
-What this is **not**: not an async event bus (handlers are synchronous), not a namespaced bus (`user.*` style wildcards are out), not a priority queue, not a transport. It is the in-process synchronous fan-out primitive — nothing more.
-
----
-
-## Quick Start
+## Install
 
 ```bash
 pnpm add aieventjs
 ```
 
-```typescript
+```ts
 import { createEmitter } from "aieventjs";
+```
 
+## Quick Start
+
+```ts
 type Events = {
-  "user:login":  { id: string };
-  "user:logout": void;
-  "score:tick":  { delta: number };
+  "score/change": { value: number };
+  "scene/end": void;
 };
 
-const bus = createEmitter<Events>();
+const events = createEmitter<Events>();
 
-// 1. Subscribe; capture the unsubscribe handle.
-const off = bus.on("user:login", (u) => console.log("hi", u.id));
+const off = events.on("score/change", ({ value }) => {
+  console.log(value);
+});
 
-// 2. Or wire to an AbortSignal for framework-native cleanup.
-const ctrl = new AbortController();
-bus.on("score:tick", (e) => render(e.delta), { signal: ctrl.signal });
-
-// 3. Wildcard receives (type, payload) — fires AFTER type-matched handlers.
-bus.on("*", (type, payload) => trace(type, payload));
-
-// 4. Dispatch.
-bus.emit("user:login", { id: "alice" });
-
-// 5. Tear down.
+events.on("*", (type, payload) => console.log(type, payload), { sampleRate: 0.1 });
+events.emit("score/change", { value: 10 });
 off();
-ctrl.abort();
-bus.dispose(); // idempotent; post-dispose calls throw EmitterDisposedError
+events.dispose();
 ```
 
-`createEmitter()` returns a plain object whose methods do not depend on `this` — `const { on, emit } = bus` works fine.
+## Core API
 
-> **Declare the event map with `type`, not `interface`.** The `Events` generic is constrained to `Record<string, unknown>`. A *plain* TypeScript `interface` has no implicit index signature, so passing one fails the constraint with *"Index signature for type 'string' is missing in type ..."*. A `type` object literal satisfies it structurally. (An `interface` with an explicit index signature — or one that `extends Record<string, unknown>` — also compiles, but widens `keyof Events` to `string` and loses strict event-name checking, so prefer `type`.)
->
-> ```typescript
-> // ❌ interface — fails the Record<string, unknown> constraint (TS2344)
-> interface Events { "user:login": { id: string } }
-> const bus = createEmitter<Events>();
->
-> // ✅ type — satisfies the constraint
-> type Events = { "user:login": { id: string } };
-> const bus = createEmitter<Events>();
-> ```
+- `createEmitter<Events>(options?)` creates a typed emitter.
+- `on(type, handler, options?)` subscribes and returns an unsubscribe function.
+- `on("*", wildcard, options?)` subscribes to every event after type-matched handlers.
+- `once(type, handler)` is shorthand for a one-shot typed handler.
+- `off(type, handler?)`, `clear()`, and `dispose()` remove handlers at different scopes.
+- `emit(type, payload)` dispatches synchronously over a snapshot of handlers.
+- Options: `signal`, `once`, `captureErrors`, `sampleRate` for wildcard, `throttleMs` for typed and wildcard.
 
----
+## Sharp Edges
 
-## Capabilities / Limitations
+- Default error policy is mitt-like: the first throwing handler aborts dispatch. Use `captureHandlerErrors` or per-handler `captureErrors` to swallow/report and continue.
+- Wildcard handlers receive `(type, payload)`, not just payload.
+- Use `on("*", handler, { once: true })` for wildcard-once. `once("*")` is intentionally not part of the typed public overload.
+- `throttleMs` uses `Date.now()`. If the system clock moves backward, a throttled handler can be muted until wall time catches up.
+- `sampleRate` is wildcard-only and uses `Math.random()` per dispatch.
+- `dispose()` is permanent; post-dispose APIs throw `EmitterDisposedError` except cleanup calls that are no-ops by design.
 
-| Will do (v1)                                              | Won't do                                              |
-| --------------------------------------------------------- | ----------------------------------------------------- |
-| Typed `createEmitter<Events>()`                           | Untyped string-key bus (the type is the point)        |
-| `on()` returns unsubscribe function                       | Async / promise-returning handlers (sync only)        |
-| `once(type, handler)` + `on(..., { once: true })`         | Namespaced wildcards (`"user.*"`) — out of scope      |
-| `on(..., { signal })` — `AbortSignal` cleanup             | Priority / weight / ordering hints                    |
-| Wildcard `"*"` handler — `(type, payload)`                | Cross-context transport (use `aibridgejs` for that)   |
-| `dispose()` idempotent; post-dispose calls throw          | Error-event special casing (Node EventEmitter style)  |
-| Handler-array snapshot on `emit` (safe re-entrancy)       | Persistent storage / replay (not its job)             |
-| Destructurable methods (`const { on, emit } = bus`)       | Zero-allocation `emit` (one snapshot per dispatch is required for re-entrancy) |
-| `on('*', fn, { sampleRate })` — probabilistic delivery for debug subscribers (wildcard only) | |
-| `on(type, fn, { throttleMs })` — per-handler leading-edge throttle, on typed **and** wildcard subscriptions (e.g. a per-frame `credits/change` HUD event) | |
-| `createEmitter({ captureHandlerErrors })` — opt-in error policy; per-handler override via `OnOptions.captureErrors` | |
+## AI Context
 
----
-
-## API sketch
-
-```typescript
-type EventHandler<P> = (payload: P) => void;
-
-type WildcardHandler<Events extends Record<string, unknown>> =
-  <K extends keyof Events>(type: K, payload: Events[K]) => void;
-
-interface OnOptions {
-  signal?: AbortSignal;
-  once?: boolean;
-  captureErrors?: boolean | ((err: unknown, type: string, payload: unknown) => void); // typed only
-  sampleRate?: number;  // wildcard "*" only — probability in (0, 1]
-  throttleMs?: number;  // typed or wildcard — per-handler leading-edge throttle, uses Date.now()
-                        // Note: Date.now() is not monotonic; a system-clock regression silently
-                        // mutes the handler until wall time re-passes the stored timestamp.
-                        // Switching to performance.now() is deferred to the next minor. (EVT-R-02)
-}
-
-interface EmitterOptions {
-  // Default error policy. undefined/false (default): first throw aborts dispatch.
-  // true: swallow errors and continue dispatch over all handlers.
-  // (err, type, payload) => void: callback invoked per throwing handler
-  //   (if the callback itself throws, that error is silently ignored and dispatch continues).
-  // Per-handler OnOptions.captureErrors overrides this for individual subscriptions.
-  captureHandlerErrors?: boolean | ((err: unknown, type: string, payload: unknown) => void);
-}
-
-interface Emitter<Events extends Record<string, unknown>> {
-  on<K extends keyof Events>(type: K, handler: EventHandler<Events[K]>, opts?: OnOptions): () => void;
-  on(type: "*", handler: WildcardHandler<Events>, opts?: OnOptions): () => void;
-  once<K extends keyof Events>(type: K, handler: EventHandler<Events[K]>): () => void;
-  // Note: once() only accepts typed event keys. For wildcard-once semantics use
-  // on("*", handler, { once: true }) — the handler receives (type, payload) as
-  // WildcardHandler, not (payload) as EventHandler. (EVT-B-02)
-  off<K extends keyof Events>(type: K, handler?: EventHandler<Events[K]>): void;
-  off(type: "*", handler?: WildcardHandler<Events>): void;
-  emit<K extends keyof Events>(type: K, payload: Events[K]): void;
-  clear(): void;
-  dispose(): void;
-  readonly disposed: boolean;
-}
-
-class EmitterError extends Error {}
-class EmitterDisposedError extends Error {}
-
-function createEmitter<Events extends Record<string, unknown> = Record<string, unknown>>(
-  opts?: EmitterOptions,
-): Emitter<Events>;
-```
-
-Full JSDoc lives in [`src/index.ts`](src/index.ts).
-
----
-
-## Roadmap
-
-| Version    | Adds                                                                                                                                |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| **0.0.1**  | Scaffold landed — frozen API surface as a `throw` stub; full config + CI walk clean.                                                |
-| **0.1.0**  | First npm release. `on` / `once` / `off` / `emit` / `clear` / `dispose` implemented; coverage ≥ 95/90/100/100; ≤ 800 B gzip (strict-TS overhead lands at ~747 B). |
-| **0.3.0**  | `captureHandlerErrors` + wildcard sampling/throttling. The v0.2 number was skipped to align with the four-package v0.3 release cohort. |
-| **0.4.0**  | Dependency hygiene + stability freeze: removed the unused `tsx` devDependency, aligned `fast-check` to `^4.8.0`, and froze the 0.3.x public surface for the 1.x line. No runtime API change; bundle byte-identical to 0.3.1. |
-| **0.6+**   | Async handler tracking (draft) — see [STABILITY.md](STABILITY.md).                                                                  |
-
----
+- Short index: [`llms.txt`](llms.txt)
+- Full generated context: [`llms-full.txt`](llms-full.txt)
+- Stability contract: [`STABILITY.md`](STABILITY.md)
+- Current review backlog: [`REVIEW.md`](REVIEW.md)
+- Release history: [`CHANGELOG.md`](CHANGELOG.md)
 
 ## License
 
-[MIT](LICENSE).
+MIT
 
 ---
 
@@ -195,173 +84,25 @@ Full JSDoc lives in [`src/index.ts`](src/index.ts).
 
 # Changelog
 
-All notable changes to this project are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
-adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+All notable changes to aieventjs are summarized here.
 
 ## [Unreleased]
 
+- Documentation-only slimming pass across README, stability notes, review backlog, and LLM context.
+- Known follow-ups: consider monotonic `performance.now()` throttling and a clearer runtime guard for `once("*")`.
+
 ## [0.5.6] - 2026-06-10
 
-### Fixed
+- Hardened wildcard/once documentation and wall-clock throttle caveats.
+- Kept typed dispatch, wildcard dispatch, and AbortSignal behavior stable.
+- Regenerated generated LLM context from canonical docs.
 
-- `purge()` and `off(type)` now truncate the typed handler arrays they flush (mirroring the wildcard array's existing handling), so a retained unsubscribe closure no longer pins every sibling handler entry against GC. (Review wave 2026-06-10, EVT-R-01.)
+## Older releases
 
-### Changed
-
-- Supply-chain and release hardening: CI/publish actions SHA-pinned, npm CLI pinned (`11.16.0`) in the OIDC publish job, `permissions: contents: read` on CI, job timeouts, tag↔package.json version guard, `npm publish --ignore-scripts`, and **manual publish dispatch now defaults to dry-run** (it previously performed a real publish). New `verify:docs` banner gate; `typecheck` now also type-checks the test suite; `llms-full.txt` embeds `STABILITY.md`.
-
-### Docs
-
-- `STABILITY.md` freeze table now records `OnOptions.throttleMs` as **typed or wildcard since 0.5.3** (the table previously only listed the 0.3.0 wildcard-only surface). (EVT-B-01.)
-- `once("*")` is documented (and pinned by test) as routing through the wildcard `on()` overload with `(type, payload)` handler arguments; the wall-clock (`Date.now()`) limitation of `throttleMs` under backwards clock steps is documented. New pins for abort-listener detach on `off()` paths and `once` × `sampleRate` interaction.
-
-## [0.5.5] - 2026-06-08
-
-### Changed
-
-- Project home migrated to the [`islumina`](https://github.com/islumina) GitHub org; the package is now published from there via npm trusted publisher (OIDC + SLSA provenance). Family-wide version alignment at `0.5.5` — no runtime or API changes.
-
-## [0.5.3] - 2026-06-05
-
-### Added
-- `throttleMs` is now accepted on typed `on()` (non-breaking; per-handler leading-edge throttle, e.g. a per-frame `credits/change` HUD event). Previously it threw `EmitterError` (wildcard-only); `sampleRate` stays wildcard-only.
-
-### Docs
-- Document that event maps must be declared with `type`, not `interface` (an `interface` lacks an index signature and fails the `Record<string, unknown>` constraint with TS2344); `createEmitter` JSDoc + README + `README_ZHTW.md` + regenerated `llms-full.txt`.
-
-## [0.5.2] - 2026-06-05
-
-### Docs
-
-- Review-driven documentation fixes (`README.md`, `README_ZHTW.md`, `llms-full.txt`; plus repo-only `CONTRIBUTING.md`): clarity and accuracy from a cross-package code review. No runtime or API change; `dist` byte-identical to 0.5.1.
-
-## [0.5.1] - 2026-06-02
-
-### Fixed
-- `NaN` sampleRate and `NaN` throttleMs now throw `EmitterError` at `on()` time.
-  Previously, `NaN <= 0` and `NaN > 1` both evaluate to `false`, so a `NaN`
-  sampleRate silently passed validation and degraded to always-fire semantics;
-  similarly `NaN < 0` is `false`, so a `NaN` throttleMs passed and degraded to
-  no-throttle. Both guards now include `Number.isFinite()` as the first check,
-  consistent with the documented contract that invalid values throw `EmitterError`.
-
-### Tests
-- Added regression tests locking in `NaN` rejection for both `sampleRate` and
-  `throttleMs` (wildcard-throttle.test.ts §A6, §B4).
-- Added regression tests confirming that a `once` handler that throws is still
-  removed and does not re-fire on the next emit — for both typed and wildcard
-  once subscriptions (emitter.test.ts §C2a, §C2b).
-- Added regression tests for post-dispose guard coverage: `off()` after
-  `dispose()` throws `EmitterDisposedError`; `clear()` after `dispose()` throws
-  `EmitterDisposedError`; the unsubscribe function returned by `on()` is a safe
-  no-op (does not throw) after `dispose()` (emitter.test.ts §H2a, §H2b, §H2c).
-
-## [0.4.0] - 2026-05-29
-
-Dependency hygiene + stability freeze. No runtime API addition; `dist/` is byte-identical to 0.3.1 (no `src/` change). Consumer-facing behaviour is unchanged.
-
-### Changed
-- Aligned the `fast-check` devDependency to `^4.8.0` (was `^3.23.0`), matching the newer ai*js family cohort. Test-only; never bundled; zero consumer impact.
-- Declared the entire 0.3.x public API surface frozen for the 1.x line — see STABILITY.md. No signatures, error names, or default behaviours changed.
-
-### Removed
-- `tsx` devDependency — unused (no script, config, test, or CI step referenced it). Trims the lockfile subtree; no functional impact.
-
-## [0.3.1] - 2026-05-29
-### Added
-- `test/emitter.prop.test.ts`: three fast-check property invariants — dispatch
-  order (typed before wildcard, registration order preserved), snapshot stability
-  under mid-dispatch `off()`, live-set accuracy after upfront unsubscribe.
-  `numRuns: 100`; inline `fc.assert` style matching family convention.
-- `test/wildcard-throttle.test.ts` §F: five edge-case tests — pre-aborted signal
-  + valid `sampleRate` never registers; `on()` guard-before-signal ordering;
-  `captureErrors` + signal leak check (`removeEventListener` called on abort);
-  throttled wildcard + mid-dispatch abort (snapshot-in-flight completes);
-  `sampleRate` exact boundary (`Math.random() === sampleRate` is a miss).
-- `test/capture-errors.test.ts` §F: dispose-during-capturing-dispatch —
-  snapshot completes; `EmitterDisposedError` from re-entrant `emit()` is routed
-  through the capture callback; sibling handler still runs.
-- `fast-check ^3.23.0` devDependency (family convention: aifsmjs `^3.20.0`,
-  aiquadtreejs `^3.23.0`).
-
-### Changed
-- No `src/index.ts` behaviour change. `dist/` is byte-identical to v0.3.0.
-  gzip 1050 B / 1100 B unchanged.
-
-## [0.3.0] - 2026-05-29
-### Added
-- `EmitterOptions.captureHandlerErrors`: opt-in emitter-level error policy. Accepts `true` (swallow) or `(err, type, payload) => void` callback. Default behaviour (first throw aborts dispatch) is unchanged.
-- `OnOptions.captureErrors`: per-handler override of the emitter-level policy. `false` forces re-throw even when emitter-level swallows. Setting it on a wildcard `"*"` subscription throws `EmitterError`.
-- `OnOptions.sampleRate` (wildcard only): probability in `(0, 1]` that a dispatch reaches the handler; uses `Math.random()`. Out-of-range values throw `EmitterError` at `on()` time.
-- `OnOptions.throttleMs` (wildcard only): minimum ms between successive calls, leading-edge; uses `Date.now()`. Negative values throw `EmitterError` at `on()` time.
-- `STABILITY.md`: stability index for all public API surface, plus `[experimental]` placeholder for async handler tracking (targeted v0.6+).
-
-### Changed
-- Internal entry shape gains optional `ce` / `r` / `tm` / `ts` fields to carry per-handler error policy and wildcard throttle/sample state. Snapshot-before-iterate semantics in `emit()` are unchanged.
-- `scripts/check-size.mjs` budget raised from 800 B to 1100 B. Actual v0.3.0 gzip lands at ~1050 B; the spec estimate of 900 B was optimistic (~100 B per feature accounting for guard message strings and try/catch frames).
-
-### Notes
-- v0.2 was skipped; v0.3.0 directly supersedes the v0.2 roadmap entry for `captureHandlerErrors`. Existing v0.1 callers that did not pass the option see no behavioural change.
-
-## [0.1.1] - 2026-05-28
-
-### Changed (CI)
-
-- **`publish.yml` now triggers on `push: tags: ["v*"]`** (was `workflow_dispatch` only). Aligns with the trigger used by `aifsmjs` / `aiecsjs` / `aibridgejs`. Tag push now automatically runs the OIDC trusted publish.
-- **`npm publish --provenance --access public`** — the workflow now emits a [sigstore provenance attestation](https://docs.npmjs.com/generating-provenance-statements) so consumers can verify the tarball was built by this workflow on this commit.
-
-No runtime / source / API changes. This is a CI-only patch to validate the GitHub Actions OIDC trusted-publisher pipeline now that the npm trusted publisher entry is configured. Production bundles are byte-identical to 0.1.0.
-
-## [0.1.0] - 2026-05-28
-
-### Added
-
-- Strict typed `createEmitter<Events>()` with `on` returning an unsubscribe
-  function, `once`, wildcard `*` handler, `off`, `emit`, `clear`, `dispose`.
-- `on(type, handler, { signal?, once? })` — `AbortSignal` integration so
-  framework code (Svelte 5 `$effect`, Vue `onScopeDispose`) cleans up listeners
-  via the standard cancellation primitive.
-- `dispose()` idempotent; post-dispose `on` / `emit` / `once` throw
-  `EmitterDisposedError`.
-- Handler-array snapshot on `emit` so removing a handler during dispatch does
-  not skip its successor (mitt has had this property since 2.x — preserved).
-- Functional — methods are destructurable (`const { on, emit } = bus`).
-- Test coverage ≥95% statements / lines / functions / ≥90% branches.
-- Size budget: ≤ 550 B gzip.
-- Dual ESM + CJS via `tsup`; `sideEffects: false`; zero runtime dependencies.
-
-## [0.0.1] - 2026-05-28
-
-### Added (scaffold)
-
-- Full package scaffold landed (`package.json`, `tsconfig.json`,
-  `tsconfig.test.json`, `tsup.config.ts`, `vitest.config.ts`, `biome.json`,
-  `scripts/{verify-exports,check-size,build-llms-full}.mjs`,
-  `test/scaffold.test.ts`, `examples/.gitkeep`, `.github/workflows/{ci,publish}.yml`,
-  `README.md`, `README_ZHTW.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
-  `LICENSE`, `llms.txt`, `llms-full.txt`).
-- `src/index.ts` is a `throw` stub exposing the frozen 0.1.0 API surface
-  (`createEmitter`, `Emitter<Events>`, wildcard `*` handler signature, `once`,
-  `AbortSignal`-aware `on`, `dispose`, `EmitterError`, `EmitterDisposedError`).
-- `pnpm typecheck && pnpm lint && pnpm coverage && pnpm build &&
-  pnpm verify:exports && pnpm verify:llms && pnpm check:size` walks clean
-  against a single placeholder test.
-- Coverage thresholds temporarily set to `0/0/0/0`; tightened to
-  `95/90/100/100` in 0.1.0.
-- Size budget temporarily set to 3 KB gzip; tightened to the 550 B README
-  target in 0.1.0.
-- Publish workflow exists but trigger is `workflow_dispatch` only — no
-  accidental npm release until 0.1.0.
-
-### Decision log (carried over from LEARNINGS.md v0.3.0 cycle 預備區)
-
-- **Not a `mitt` fork.** `mitt@3.0.1` is MIT-fork-friendly but is ~35 lines of
-  pure logic and has been unmaintained since 2023-07. Forking is equivalent
-  to rewriting, and the upstream copyright notice would carry no benefit.
-  Cleaner to write from scratch with the ai\*js conventions baked in.
-- **Wildcard `*` is kept.** It is `mitt`'s signature feature; keeping it
-  preserves migration ergonomics for existing `mitt` users at ~80 B gzip cost.
+- `0.5.5` through `0.5.1` focused on release hygiene, docs accuracy, and regression tests for wildcard/once/error behavior.
+- `0.4.0` declared the stable ai*js surface.
+- `0.3.x` added sampling, throttle, capture-error options, and public stability docs.
+- `0.1.x` introduced `createEmitter`, typed `on/once/off/emit`, wildcard handlers, abort cleanup, and dispose semantics.
 
 ---
 
@@ -369,48 +110,29 @@ No runtime / source / API changes. This is a CI-only patch to validate the GitHu
 
 # aieventjs Stability Index
 
-Tags follow Node's stability index conventions:
+## Stable API
 
-- `[stable]` — frozen API, semver-protected.
-- `[experimental]` — usable but may change without major bump in 0.x; will stabilise pre-1.0.
-- `[draft]` — placeholder; API not yet shipped.
+| Surface | Status | Notes |
+| --- | --- | --- |
+| `createEmitter(options?)` | Stable | Generic typed event map. |
+| `Emitter.on` | Stable | Typed and wildcard overloads; returns unsubscribe. |
+| `Emitter.once` | Stable | Typed events only; wildcard once uses `on("*", ..., { once: true })`. |
+| `Emitter.off`, `clear`, `dispose` | Stable | Cleanup methods; dispose is permanent and idempotent. |
+| `Emitter.emit` | Stable | Synchronous snapshot dispatch. |
+| Error classes | Stable | `EmitterError`, `EmitterDisposedError`. |
 
-## Public API
+## Behavior
 
-| Surface | Stability | Since |
-|---|---|---|
-| `createEmitter<Events>(opts?)` | [stable] | 0.1.0 |
-| `on / once / off / emit / clear / dispose / disposed` | [stable] | 0.1.0 |
-| `on(type, handler, { signal })` (AbortSignal) | [stable] | 0.1.0 |
-| Wildcard `"*"` handler | [stable] | 0.1.0 |
-| `EmitterOptions.captureHandlerErrors` (boolean) | [stable] | 0.3.0 |
-| `EmitterOptions.captureHandlerErrors` (callback) | [stable] | 0.3.0 |
-| `OnOptions.captureErrors` | [stable] | 0.3.0 |
-| `OnOptions.sampleRate` (wildcard only) | [stable] | 0.3.0 |
-| `OnOptions.throttleMs` (wildcard only) | [stable] | 0.3.0 |
-| `OnOptions.throttleMs` (typed or wildcard) | [stable] | 0.5.3 |
-| `EmitterError` / `EmitterDisposedError` | [stable] | 0.1.0 |
+- Type-matched handlers run before wildcard handlers.
+- Handler lists are snapshotted before dispatch.
+- Default handler errors propagate; capture options can swallow/report.
+- `AbortSignal` removes subscriptions and pre-aborted signals do not register.
+- `throttleMs` uses `Date.now()` and is therefore wall-clock based.
 
-> **Stability freeze (0.4.0).** Every `[stable]` row above is frozen for the 1.x line: once 1.0 ships, these signatures, error names, and default behaviours will not change without a major version bump. v0.4.0 adds no runtime API — it formalises the 0.3.x surface as 1.0-track.
+## Drafts
 
-## Drafts (not yet implemented)
-
-### Async handler tracking — [experimental] placeholder
-
-Targeted for v0.6+. Concept sketch (subject to change):
-
-```ts
-// possibly via a new emitter option
-createEmitter<Events>({
-  awaitAsyncHandlers: true,
-});
-// emit() may return a Promise that resolves after Promise.allSettled over
-// any handler that returned a Promise. Sync handlers run synchronously
-// before any awaiting begins. Snapshot semantics preserved.
-```
-
-Not part of v0.4.0; do not depend on this API. The current `emit()` remains
-fully synchronous and ignores handler return values.
+- Async handler tracking is not implemented.
+- A future minor may switch throttle timing to monotonic time or add a runtime guard around wildcard `once()`.
 
 ---
 
@@ -418,75 +140,31 @@ fully synchronous and ignores handler return values.
 
 # Contributing to aieventjs
 
-Thanks for taking the time to look. aieventjs is a deliberately small library
-(target ≤ 1100 B gzip); contributions that keep the surface narrow are easier
-to accept than ones that expand it.
+Keep the emitter small, synchronous, and predictable.
 
-## Quick start
+## Local workflow
 
 ```bash
 pnpm install
-pnpm test            # vitest
-pnpm coverage        # vitest with v0.1.0 thresholds (95/90/100/100)
-pnpm typecheck       # tsc --noEmit on strict mode
-pnpm lint            # biome check
-pnpm build           # tsup; dual ESM/CJS + .d.ts
-pnpm verify:exports  # ensures package.json#exports matches dist/
-pnpm verify:llms     # ensures llms-full.txt is in sync with README + CHANGELOG
-pnpm check:size      # gzip per subpath against the size budget
+pnpm typecheck
+pnpm test
+pnpm verify:docs
+pnpm build:llms
+pnpm verify:llms
+pnpm check:size
 ```
 
-## What gets in easily
+Run `pnpm lint` before PRs. If docs change, regenerate `llms-full.txt`.
 
-- Bug fixes with a failing test added first
-- README / typing corrections
-- Tests that lock down existing behaviour (especially the re-entrancy
-  invariant on `emit`)
-- Performance work that keeps `on()` / `emit()` O(1) on the dispatch path
+## Rules
 
-## What needs discussion first
-
-- Anything that changes the public surface (`createEmitter`, `Emitter<Events>`,
-  `OnOptions`, error classes)
-- Namespaced wildcards (`user.*`) — explicit non-goal; bring `eventemitter2`
-  if you need that
-- Async / promise-returning handlers — explicit non-goal (handlers are
-  synchronous; resolve promises in user-land)
-- Anything that pushes the core gzip past 1100 B
-
-## Design principles
-
-aieventjs follows the ai*js library-core priority order:
-
-> Security > Correctness > Simplicity > YAGNI > Performance
-
-Key invariants:
-
-- `on()` returns a callable unsubscribe; calling it (or aborting
-  `opts.signal`) removes the handler in O(1).
-- `emit()` snapshots the handler array before iterating — handlers added
-  during dispatch do NOT fire this round; handlers removed during dispatch
-  do NOT skip their successor.
-- Wildcard `*` handlers fire AFTER type-matched handlers.
-- `dispose()` is idempotent.
-- All methods are destructurable: `const { on, emit } = bus` works.
-
-## Commit & PR style
-
-- Commit messages: imperative subject under 70 chars; body explains *why*.
-- PRs: keep scope to one topic. Link the issue if any.
-- Tests required for any behaviour change.
-
-## Reporting issues
-
-- Minimal reproduction welcome (paste the smallest `createEmitter` + on /
-  emit sequence that shows the bug).
-- For security issues, please email the maintainer rather than filing
-  publicly.
+- Preserve snapshot-before-iterate dispatch semantics.
+- Keep wildcard ordering after typed handlers.
+- Add tests for `AbortSignal`, `once`, wildcard, throttle, sample, and error policy changes.
+- Do not add async queueing to the stable emitter without a separate design note.
 
 ## License
 
-By contributing, you agree your changes will be licensed under the MIT
-license that covers this project.
+MIT
 
 ---

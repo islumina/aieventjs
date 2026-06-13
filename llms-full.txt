@@ -15,7 +15,7 @@ The short index lives at `llms.txt` (see https://llmstxt.org/).
 
 Small, strict, typed event emitter with ai*js lifecycle conventions: `on()` returns unsubscribe, `once` is built in, `AbortSignal` is first-class, wildcard handlers are supported, and `dispose()` is idempotent.
 
-> **Status: 0.5.6 - stable 1.0-track surface.** The root entry is the public API.
+> **Status: 0.5.8 - stable 1.0-track surface.** The root entry is the public API.
 
 ## Install
 
@@ -88,8 +88,11 @@ All notable changes to aieventjs are summarized here.
 
 ## [Unreleased]
 
+## [0.5.8] - 2026-06-14
+
+- Fixed: per-handler `throttleMs` now uses the monotonic `performance.now()` clock instead of `Date.now()`, so a wall-clock regression can no longer silently mute throttled handlers.
+- Changed: `once("*")` is now a compile-time type error; use `on("*", handler, { once: true })` for wildcard-once semantics.
 - Documentation-only slimming pass across README, stability notes, review backlog, and LLM context.
-- Known follow-ups: consider monotonic `performance.now()` throttling and a clearer runtime guard for `once("*")`.
 
 ## [0.5.6] - 2026-06-10
 

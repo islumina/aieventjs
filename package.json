@@ -1,6 +1,6 @@
 {
   "name": "aieventjs",
-  "version": "0.5.6",
+  "version": "0.5.8",
   "description": "Small, strict, typed event emitter — on() returns an unsubscribe function, once is built-in, AbortSignal is first-class, dispose() is idempotent, wildcard '*' handlers preserved. Mitt-shaped API; ai*js conventions everywhere else.",
   "keywords": [
     "event-emitter",

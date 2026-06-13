@@ -2,7 +2,7 @@
 
 Small, strict, typed event emitter with ai*js lifecycle conventions: `on()` returns unsubscribe, `once` is built in, `AbortSignal` is first-class, wildcard handlers are supported, and `dispose()` is idempotent.
 
-> **Status: 0.5.6 - stable 1.0-track surface.** The root entry is the public API.
+> **Status: 0.5.8 - stable 1.0-track surface.** The root entry is the public API.
 
 ## Install
 

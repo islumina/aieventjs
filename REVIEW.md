@@ -6,8 +6,8 @@ Current review state after the 2026-06-10 ai*js pass.
 
 | Priority | Area | Status | Notes |
 | --- | --- | --- | --- |
-| P2 | Throttle clock | Open | `throttleMs` uses `Date.now()`. Clock regression can mute handlers until wall time catches up. |
-| P3 | Wildcard once typing | Open | Public overload excludes `once("*")`, but unsafe casts can still reach runtime wildcard behavior. Prefer `on("*", ..., { once: true })`. |
+| P2 | Throttle clock | Fixed | Switched `Date.now()` → `performance.now()` (monotonic) in both throttle gates in `emit()`. JSDoc updated. Regression tests in `test/throttle-monotonic.test.ts`. |
+| P3 | Wildcard once typing | Fixed | Added `once(type: "*", handler: never): never` rejection overload to `Emitter<Events>`. `once("*", h)` is now a compile-time type error. Supported path remains `on("*", h, { once: true })`. Tests in T03 block of `emitter.test.ts`. |
 
 ## Fixed Summary
 

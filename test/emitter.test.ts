@@ -586,13 +586,12 @@ describe("H2. dispose — additional edge cases", () => {
 });
 
 // ---------------------------------------------------------------------------
-// T02. once("*") current-behaviour pin (EVT-T-02)
+// T02. once("*") — type-level rejection + supported wildcard-once path (EVT-B-02 / P3)
 // ---------------------------------------------------------------------------
-// once("*", h) is NOT part of the once() public overload — the overload only
-// accepts K extends keyof Events. To use wildcard-once, call
-// on("*", h, { once: true }). This block pins the current runtime behaviour:
-// on("*", h, { once: true }) routes correctly and fires h as (type, payload).
-// A type-level fix for once("*") is deferred to the next minor (EVT-B-02).
+// once("*", h) is NOT part of the once() public overload. The interface now
+// has an explicit rejection overload: once(type: "*", handler: never): never.
+// This makes once("*", handler) a compile-time type error.
+// The supported path for wildcard-once is: on("*", handler, { once: true }).
 
 describe("T02. once wildcard-once via on('*', { once }) pin (EVT-T-02)", () => {
   it("T02a. on('*', h, { once: true }) fires h exactly once as (type, payload)", () => {
@@ -612,6 +611,35 @@ describe("T02. once wildcard-once via on('*', { once }) pin (EVT-T-02)", () => {
     off();
     bus.emit("ping", { n: 1 });
     expect(fn).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T03. once("*") type-level rejection (EVT-B-02 / P3)
+// ---------------------------------------------------------------------------
+// Verifies the compile-time rejection overload: once(type: "*", handler: never).
+// @ts-expect-error lines confirm that once("*", handler) is a type error.
+// The runtime test confirms on("*", h, { once: true }) remains the valid path.
+
+describe("T03. once('*') type-level rejection (EVT-B-02)", () => {
+  it("T03a. once('*', handler) is a compile-time type error (@ts-expect-error)", () => {
+    const bus = createEmitter<Events>();
+    const wh: WildcardHandler<Events> = vi.fn();
+    // @ts-expect-error — once("*", ...) is rejected: handler not assignable to never.
+    bus.once("*", wh);
+    // The test itself is a no-op at runtime; the important check is that
+    // @ts-expect-error above does NOT produce a "Unused '@ts-expect-error'" error,
+    // which would mean TS no longer considers this a type error.
+  });
+
+  it("T03b. on('*', handler, { once: true }) is the supported wildcard-once path — fires once", () => {
+    const bus = createEmitter<Events>();
+    const calls: Array<[unknown, unknown]> = [];
+    bus.on("*", (type, payload) => calls.push([type, payload]), { once: true });
+    bus.emit("ping", { n: 99 });
+    bus.emit("pong", "ignored");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual(["ping", { n: 99 }]);
   });
 });
 

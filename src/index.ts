@@ -370,7 +370,16 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
 
     const fn = handler as AH;
     const ce = o?.captureErrors;
+    const arr = ga(type);
+    const prune = () => {
+      if (!arr.length) t.delete(type);
+    };
     if (o?.once) {
+      let unsub!: () => void;
+      const rm = () => {
+        unsub();
+        prune();
+      };
       const e: E<AH> = {
         h: (p) => {
           rm();
@@ -381,10 +390,14 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
         ce: ce,
         tm: tm2,
       };
-      const rm = sub(ga(type), e, sig);
+      unsub = sub(arr, e, sig);
       return rm;
     }
-    return sub(ga(type), { h: fn, u: fn, c: undefined, ce: ce, tm: tm2 }, sig);
+    const unsub = sub(arr, { h: fn, u: fn, c: undefined, ce: ce, tm: tm2 }, sig);
+    return () => {
+      unsub();
+      prune();
+    };
   }
 
   function once<K extends keyof Events>(type: K, handler: EventHandler<Events[K]>): () => void {
@@ -410,6 +423,7 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
       t.delete(type);
     } else {
       rmByUser(arr, handler as AH);
+      if (!arr.length) t.delete(type);
     }
   }
 
@@ -469,6 +483,8 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
     w.length = 0;
   }
 
+  // _mapSize: test-only observation seam (not on the public Emitter interface).
+  // Casted away at the return type; exposes t.size for Map-pruning regression tests.
   return {
     on: on as Emitter<Events>["on"],
     once: once as Emitter<Events>["once"],
@@ -487,5 +503,8 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
     get disposed() {
       return d;
     },
-  };
+    get _mapSize() {
+      return t.size;
+    },
+  } as unknown as Emitter<Events>;
 }

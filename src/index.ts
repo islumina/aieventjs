@@ -372,7 +372,11 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
     const ce = o?.captureErrors;
     const arr = ga(type);
     const prune = () => {
-      if (!arr.length) t.delete(type);
+      // Identity guard: only delete the key when `arr` is STILL the array
+      // currently mapped. ga() mints a NEW array when a deleted key is
+      // re-subscribed, so a stale/double unsub of the original handler must
+      // not prune the live re-subscribed key (idempotency).
+      if (!arr.length && t.get(type) === arr) t.delete(type);
     };
     if (o?.once) {
       let unsub!: () => void;

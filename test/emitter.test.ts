@@ -1016,4 +1016,23 @@ describe("C6. Map key pruning — empty-array entries removed on last unsub (EVT
     expect(fn1).not.toHaveBeenCalled();
     expect(fn2).toHaveBeenCalledOnce();
   });
+
+  it("C6f. stale/double unsub after re-subscribe must NOT delete the live key (idempotency)", () => {
+    // Regression: the C6 prune closure captured the array from ga(type) at on()
+    // time. ga() mints a NEW array when the key was previously deleted, so a
+    // stale double-unsub of the first handler pruned the live re-subscribed key.
+    const bus = createEmitter<{ A: number }>();
+    const u1 = bus.on("A", () => {});
+    u1(); // arr1 empties -> key "A" pruned
+    let fired = 0;
+    bus.on("A", () => {
+      fired++;
+    }); // new array now mapped to "A"
+    u1(); // stale double-unsub of the first handler — must be a harmless no-op
+    bus.emit("A", 1);
+    // BUG (before fix): fired === 0 and _mapSize === 0 (live key wrongly deleted).
+    // FIXED:            live handler still fires and key "A" remains.
+    expect(fired).toBe(1); // live handler must still fire
+    expect((bus as unknown as WithMapSize)._mapSize).toBe(1); // key "A" must remain
+  });
 });

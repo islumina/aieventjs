@@ -15,7 +15,7 @@ The short index lives at `llms.txt` (see https://llmstxt.org/).
 
 Small, strict, typed event emitter with ai*js lifecycle conventions: `on()` returns unsubscribe, `once` is built in, `AbortSignal` is first-class, wildcard handlers are supported, and `dispose()` is idempotent.
 
-> **Status: 0.5.8 - stable 1.0-track surface.** The root entry is the public API.
+> **Status: 0.5.9 - stable 1.0-track surface.** The root entry is the public API.
 
 ## Install
 
@@ -62,7 +62,7 @@ events.dispose();
 - Default error policy is mitt-like: the first throwing handler aborts dispatch. Use `captureHandlerErrors` or per-handler `captureErrors` to swallow/report and continue.
 - Wildcard handlers receive `(type, payload)`, not just payload.
 - Use `on("*", handler, { once: true })` for wildcard-once. `once("*")` is intentionally not part of the typed public overload.
-- `throttleMs` uses `Date.now()`. If the system clock moves backward, a throttled handler can be muted until wall time catches up.
+- `throttleMs` uses `performance.now()` (monotonic); system-clock corrections do not affect throttle windows.
 - `sampleRate` is wildcard-only and uses `Math.random()` per dispatch.
 - `dispose()` is permanent; post-dispose APIs throw `EmitterDisposedError` except cleanup calls that are no-ops by design.
 
@@ -87,6 +87,11 @@ MIT
 All notable changes to aieventjs are summarized here.
 
 ## [Unreleased]
+
+## [0.5.9] - 2026-06-29
+
+- Fixed: per-handler unsubscribe now prunes the empty handler array from the typed-handler map (no unbounded growth on high-cardinality / churning event names), with a Map-identity guard so a stale or double unsubscribe after re-subscribing cannot delete a live key.
+- Docs: `throttleMs` is documented as monotonic (`performance.now()`); removed the stale wall-clock caveat.
 
 ## [0.5.8] - 2026-06-14
 
@@ -130,12 +135,11 @@ All notable changes to aieventjs are summarized here.
 - Handler lists are snapshotted before dispatch.
 - Default handler errors propagate; capture options can swallow/report.
 - `AbortSignal` removes subscriptions and pre-aborted signals do not register.
-- `throttleMs` uses `Date.now()` and is therefore wall-clock based.
+- `throttleMs` uses `performance.now()` (monotonic) and is unaffected by system-clock corrections.
 
 ## Drafts
 
 - Async handler tracking is not implemented.
-- A future minor may switch throttle timing to monotonic time or add a runtime guard around wildcard `once()`.
 
 ---
 

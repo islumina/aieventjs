@@ -2,7 +2,7 @@
 
 小而嚴格的 typed event emitter，具備 ai*js lifecycle 慣例：`on()` 回傳 unsubscribe、內建 `once`、支援 `AbortSignal`、wildcard handlers，以及可重複呼叫的 `dispose()`。
 
-> **狀態：0.5.8 - 穩定 1.0 軌道 API。** root entry 是公開 API。
+> **狀態：0.5.9 - 穩定 1.0 軌道 API。** root entry 是公開 API。
 
 ## 安裝
 

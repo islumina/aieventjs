@@ -925,3 +925,114 @@ describe("K. Extra coverage", () => {
     expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
   });
 });
+
+// ---------------------------------------------------------------------------
+// C6. Map key pruning — empty arrays must not persist after last handler removed
+// ---------------------------------------------------------------------------
+// The internal typed Map `t` should never retain a key whose handler array has
+// drained to length 0.  High-cardinality / churning event names (e.g. entity
+// UUIDs) otherwise accumulate unbounded empty entries; every emit() pays a Map
+// lookup over a growing key set.
+//
+// `t` is closure-private. A minimal test-only observation seam (`_mapSize`)
+// is added to the concrete object returned by `createEmitter` (not the public
+// Emitter interface) to expose `t.size` — the number of distinct typed event
+// keys currently retained in the Map.  Tests cast via `{ _mapSize: number }`.
+//
+// FIX expected: after the last handler for a key is removed (via either the
+// on() unsub return fn OR off(type, handler)), the Map entry MUST be deleted.
+
+type WithMapSize = { _mapSize: number };
+
+describe("C6. Map key pruning — empty-array entries removed on last unsub (EVT-C-06)", () => {
+  it("C6a. on() unsub closure prunes empty key from Map (_mapSize drops to 0)", () => {
+    // Subscribe to a dynamic key, then unsubscribe via the on() return fn.
+    // After unsub the Map must NOT retain the entry: _mapSize must be 0.
+    const bus = createEmitter<Record<string, unknown>>();
+    const fn = vi.fn();
+    const unsub = bus.on("entity:abc-123", fn);
+    expect((bus as unknown as WithMapSize)._mapSize).toBe(1); // key is present
+    unsub(); // <- path under test
+    // BUG (before fix): _mapSize is still 1 (empty [] retained).
+    // FIXED:            _mapSize is 0 (key deleted).
+    expect((bus as unknown as WithMapSize)._mapSize).toBe(0);
+    // Behaviour is unchanged — handler must not fire.
+    bus.emit("entity:abc-123", undefined);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("C6b. off(type, handler) prunes empty key from Map (_mapSize drops to 0) — rmByUser path", () => {
+    const bus = createEmitter<Record<string, unknown>>();
+    const fn = vi.fn();
+    bus.on("entity:def-456", fn);
+    expect((bus as unknown as WithMapSize)._mapSize).toBe(1);
+    bus.off("entity:def-456", fn); // <- rmByUser path
+    // BUG (before fix): _mapSize is still 1.
+    // FIXED:            _mapSize is 0.
+    expect((bus as unknown as WithMapSize)._mapSize).toBe(0);
+    bus.emit("entity:def-456", undefined);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("C6c. bounded Map growth — N unique-key subscribe/unsubscribe cycles leave _mapSize 0", () => {
+    // Simulate high-cardinality churning: N unique entity keys each get one
+    // subscriber then immediately unsubscribed via the on() return fn.
+    // BUG (before fix): _mapSize === N after the loop.
+    // FIXED:            _mapSize === 0 after the loop.
+    const N = 200;
+    const bus = createEmitter<Record<string, unknown>>();
+    const keys = Array.from({ length: N }, (_, i) => `entity:${i}`);
+    for (const k of keys) {
+      const unsub = bus.on(k, () => {});
+      unsub();
+    }
+    expect((bus as unknown as WithMapSize)._mapSize).toBe(0);
+  });
+
+  it("C6d. bounded Map growth — N cycles via off(type, handler) rmByUser path leave _mapSize 0", () => {
+    const N = 200;
+    const bus = createEmitter<Record<string, unknown>>();
+    const keys = Array.from({ length: N }, (_, i) => `entity:${i}`);
+    const handlers: (() => void)[] = keys.map(() => () => {});
+    for (let i = 0; i < N; i++) {
+      bus.on(keys[i]!, handlers[i]!);
+      bus.off(keys[i]!, handlers[i]!);
+    }
+    // BUG (before fix): _mapSize === N.
+    // FIXED:            _mapSize === 0.
+    expect((bus as unknown as WithMapSize)._mapSize).toBe(0);
+  });
+
+  it("C6e. partial unsub — sibling handler keeps key in Map (_mapSize stays 1)", () => {
+    // Two handlers on same key; unsubbing one must NOT prune while sibling remains.
+    const bus = createEmitter<Record<string, unknown>>();
+    const fn1 = vi.fn();
+    const fn2 = vi.fn();
+    const unsub1 = bus.on("shared-key", fn1);
+    bus.on("shared-key", fn2);
+    unsub1(); // fn1 removed but fn2 remains — key must STAY in Map
+    expect((bus as unknown as WithMapSize)._mapSize).toBe(1); // still 1 key
+    bus.emit("shared-key", undefined);
+    expect(fn1).not.toHaveBeenCalled();
+    expect(fn2).toHaveBeenCalledOnce();
+  });
+
+  it("C6f. stale/double unsub after re-subscribe must NOT delete the live key (idempotency)", () => {
+    // Regression: the C6 prune closure captured the array from ga(type) at on()
+    // time. ga() mints a NEW array when the key was previously deleted, so a
+    // stale double-unsub of the first handler pruned the live re-subscribed key.
+    const bus = createEmitter<{ A: number }>();
+    const u1 = bus.on("A", () => {});
+    u1(); // arr1 empties -> key "A" pruned
+    let fired = 0;
+    bus.on("A", () => {
+      fired++;
+    }); // new array now mapped to "A"
+    u1(); // stale double-unsub of the first handler — must be a harmless no-op
+    bus.emit("A", 1);
+    // BUG (before fix): fired === 0 and _mapSize === 0 (live key wrongly deleted).
+    // FIXED:            live handler still fires and key "A" remains.
+    expect(fired).toBe(1); // live handler must still fire
+    expect((bus as unknown as WithMapSize)._mapSize).toBe(1); // key "A" must remain
+  });
+});

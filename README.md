@@ -2,7 +2,7 @@
 
 Small, strict, typed event emitter with ai*js lifecycle conventions: `on()` returns unsubscribe, `once` is built in, `AbortSignal` is first-class, wildcard handlers are supported, and `dispose()` is idempotent.
 
-> **Status: 0.5.8 - stable 1.0-track surface.** The root entry is the public API.
+> **Status: 0.5.9 - stable 1.0-track surface.** The root entry is the public API.
 
 ## Install
 
@@ -49,7 +49,7 @@ events.dispose();
 - Default error policy is mitt-like: the first throwing handler aborts dispatch. Use `captureHandlerErrors` or per-handler `captureErrors` to swallow/report and continue.
 - Wildcard handlers receive `(type, payload)`, not just payload.
 - Use `on("*", handler, { once: true })` for wildcard-once. `once("*")` is intentionally not part of the typed public overload.
-- `throttleMs` uses `Date.now()`. If the system clock moves backward, a throttled handler can be muted until wall time catches up.
+- `throttleMs` uses `performance.now()` (monotonic); system-clock corrections do not affect throttle windows.
 - `sampleRate` is wildcard-only and uses `Math.random()` per dispatch.
 - `dispose()` is permanent; post-dispose APIs throw `EmitterDisposedError` except cleanup calls that are no-ops by design.
 

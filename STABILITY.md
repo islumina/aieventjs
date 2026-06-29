@@ -17,9 +17,8 @@
 - Handler lists are snapshotted before dispatch.
 - Default handler errors propagate; capture options can swallow/report.
 - `AbortSignal` removes subscriptions and pre-aborted signals do not register.
-- `throttleMs` uses `Date.now()` and is therefore wall-clock based.
+- `throttleMs` uses `performance.now()` (monotonic) and is unaffected by system-clock corrections.
 
 ## Drafts
 
 - Async handler tracking is not implemented.
-- A future minor may switch throttle timing to monotonic time or add a runtime guard around wildcard `once()`.

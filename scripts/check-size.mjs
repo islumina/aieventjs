@@ -23,7 +23,9 @@ const budgets = {
   //   • Wildcard sample + throttle logic with Date.now() in emit() wildcard loop: ~120 B.
   // The spec estimate of ~30 B per feature was incorrect; 900 B budget raised to 1100 B.
   // Phase C: P2 — reconsider if features can be split into a separate sub-import.
-  "dist/index.js": 1100,
+  // v0.5.9 fix wave: Map-key pruning fix + _mapSize test-seam getter added ~50 B gzip;
+  // budget raised to 1150 B. Actual post-fix size: ~1125 B.
+  "dist/index.js": 1150,
 };
 
 const failures = [];

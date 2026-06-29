@@ -4,6 +4,11 @@ All notable changes to aieventjs are summarized here.
 
 ## [Unreleased]
 
+## [0.5.9] - 2026-06-29
+
+- Fixed: per-handler unsubscribe now prunes the empty handler array from the typed-handler map (no unbounded growth on high-cardinality / churning event names), with a Map-identity guard so a stale or double unsubscribe after re-subscribing cannot delete a live key.
+- Docs: `throttleMs` is documented as monotonic (`performance.now()`); removed the stale wall-clock caveat.
+
 ## [0.5.8] - 2026-06-14
 
 - Fixed: per-handler `throttleMs` now uses the monotonic `performance.now()` clock instead of `Date.now()`, so a wall-clock regression can no longer silently mute throttled handlers.

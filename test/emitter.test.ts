@@ -497,6 +497,31 @@ describe("G. Re-entrancy", () => {
     bus.emit("ping", { n: 2 });
     expect(order).toEqual(["typed"]);
   });
+
+  it("G9. wildcard once consumed by a nested emit does NOT fire again from the outer snapshot", () => {
+    const bus = createEmitter<{ a: number; b: number }>();
+    const calls: [string, number][] = [];
+    bus.on("*", (t, p) => calls.push([t as string, p]), { once: true });
+    bus.on("a", () => bus.emit("b", 2));
+    bus.emit("a", 1);
+    expect(calls).toEqual([["b", 2]]);
+  });
+
+  it("G10. typed once consumed by a nested same-type emit does NOT fire again (once() and on({ once }))", () => {
+    for (const viaOn of [false, true]) {
+      const bus = createEmitter<{ x: number }>();
+      const h = vi.fn();
+      let depth = 0;
+      bus.on("x", () => {
+        if (depth++ === 0) bus.emit("x", 2);
+      });
+      if (viaOn) bus.on("x", h, { once: true });
+      else bus.once("x", h);
+      bus.emit("x", 1);
+      expect(h).toHaveBeenCalledOnce();
+      expect(h).toHaveBeenCalledWith(2);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -356,6 +356,9 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
       if (o?.once) {
         const e: E<WH> = {
           h: (tp, p) => {
+            // Go inert first: an outer emit's snapshot may still hold this
+            // entry after a nested emit consumed it (never fire twice).
+            e.h = () => {};
             rm();
             fn(tp, p);
           },
@@ -383,6 +386,7 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
     if (o?.once) {
       const e: E<AH> = {
         h: (p) => {
+          e.h = () => {}; // inert before rm/fn — see wildcard once above
           rm();
           fn(p);
         },

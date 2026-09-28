@@ -503,6 +503,17 @@ describe("G. Re-entrancy", () => {
     expect(log).toEqual(["after-dispose", "sibling"]);
   });
 
+  it("G6a. dispose inside a typed handler — a wildcard handler already in the snapshot still fires", () => {
+    const bus = createEmitter<Events>();
+    const wild = vi.fn();
+    bus.on("ping", () => {
+      bus.dispose();
+    });
+    bus.on("*", wild);
+    bus.emit("ping", { n: 1 });
+    expect(wild).toHaveBeenCalledOnce();
+  });
+
   it("G7. typed handler adding a wildcard mid-emit — new wildcard NOT fired this emit", () => {
     const bus = createEmitter<Events>();
     const order: string[] = [];

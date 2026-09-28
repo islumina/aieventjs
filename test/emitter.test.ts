@@ -320,6 +320,44 @@ describe("E. AbortSignal", () => {
     bus.emit("ping", { n: 1 });
     expect(fn).toHaveBeenCalledOnce();
   });
+
+  it("E7. signal: null (plain-JS / `as any` caller) — treated like undefined, does not throw, handler still fires and unsubscribes normally", () => {
+    const bus = createEmitter<Events>();
+    const fn = vi.fn();
+    let unsub: (() => void) | undefined;
+    expect(() => {
+      unsub = bus.on("ping", fn, { signal: null as unknown as AbortSignal });
+    }).not.toThrow();
+    bus.emit("ping", { n: 1 });
+    expect(fn).toHaveBeenCalledOnce();
+    unsub?.();
+    bus.emit("ping", { n: 2 });
+    expect(fn).toHaveBeenCalledOnce();
+  });
+
+  it("E8. signal: null with once:true (typed) — registers cleanly, fires exactly once, repeated emits never throw", () => {
+    const bus = createEmitter<Events>();
+    const fn = vi.fn();
+    expect(() => {
+      bus.on("ping", fn, { signal: null as unknown as AbortSignal, once: true });
+    }).not.toThrow();
+    bus.emit("ping", { n: 1 });
+    expect(fn).toHaveBeenCalledOnce();
+    expect(() => bus.emit("ping", { n: 2 })).not.toThrow();
+    expect(fn).toHaveBeenCalledOnce();
+  });
+
+  it("E9. signal: null with once:true (wildcard) — registers cleanly, fires exactly once, repeated emits never throw", () => {
+    const bus = createEmitter<Events>();
+    const fn = vi.fn();
+    expect(() => {
+      bus.on("*", fn, { signal: null as unknown as AbortSignal, once: true });
+    }).not.toThrow();
+    bus.emit("ping", { n: 1 });
+    expect(fn).toHaveBeenCalledOnce();
+    expect(() => bus.emit("ping", { n: 2 })).not.toThrow();
+    expect(fn).toHaveBeenCalledOnce();
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -243,10 +243,13 @@ function flush<H>(arr: E<H>[]): void {
   }
 }
 
-// Push entry onto arr, wire AbortSignal, return unsubscribe. `x` runs after
-// every removal (unsubscribe OR abort) — the typed path passes its Map prune.
+// Wire AbortSignal (if any), then push entry onto arr, and return unsubscribe.
+// Wiring first means a throwing/invalid `sig` (e.g. `null` from a plain-JS
+// caller, or an addEventListener that throws) leaves no partial state: arr
+// never gains an entry that on() then fails to return an unsubscribe for.
+// `x` runs after every removal (unsubscribe OR abort) — the typed path
+// passes its Map prune.
 function sub<H>(arr: E<H>[], e: E<H>, sig: AbortSignal | undefined, x?: () => void): () => void {
-  arr.push(e);
   const rm = () => {
     const i = arr.indexOf(e);
     if (i >= 0) arr.splice(i, 1);
@@ -254,11 +257,14 @@ function sub<H>(arr: E<H>[], e: E<H>, sig: AbortSignal | undefined, x?: () => vo
     e.c = undefined;
     x?.();
   };
-  if (sig !== undefined) {
+  // Treat `null` the same as `undefined` — on()'s `sig?.aborted` guard above
+  // already does this; sub() must not diverge from it.
+  if (sig) {
     const fn = () => rm();
     sig.addEventListener("abort", fn, { once: true });
     e.c = () => sig.removeEventListener("abort", fn);
   }
+  arr.push(e);
   return rm;
 }
 

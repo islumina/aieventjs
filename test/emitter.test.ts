@@ -1035,4 +1035,46 @@ describe("C6. Map key pruning — empty-array entries removed on last unsub (EVT
     expect(fired).toBe(1); // live handler must still fire
     expect((bus as unknown as WithMapSize)._mapSize).toBe(1); // key "A" must remain
   });
+
+  it("C6g. AbortSignal removal prunes empty key from Map (plain signal subscription)", () => {
+    // Regression: sub() wired the abort listener to its inner rm, which never
+    // ran the typed-path prune, so an aborted subscription left an empty [].
+    const bus = createEmitter<Record<string, unknown>>();
+    const fn = vi.fn();
+    const ctrl = new AbortController();
+    bus.on("k", fn, { signal: ctrl.signal });
+    expect((bus as unknown as WithMapSize)._mapSize).toBe(1);
+    ctrl.abort();
+    bus.emit("k", undefined);
+    expect(fn).not.toHaveBeenCalled();
+    expect((bus as unknown as WithMapSize)._mapSize).toBe(0);
+  });
+
+  it("C6h. bounded Map growth — N unique-key subscribe/abort cycles leave _mapSize 0 (plain + once)", () => {
+    const N = 100;
+    for (const once of [false, true]) {
+      const bus = createEmitter<Record<string, unknown>>();
+      for (let i = 0; i < N; i++) {
+        const c = new AbortController();
+        bus.on(`k${i}`, () => {}, { signal: c.signal, once });
+        c.abort();
+      }
+      expect((bus as unknown as WithMapSize)._mapSize).toBe(0);
+    }
+  });
+
+  it("C6i. abort after the key is re-minted must NOT delete the live key", () => {
+    const bus = createEmitter<{ A: number }>();
+    const c = new AbortController();
+    const u1 = bus.on("A", () => {}, { signal: c.signal });
+    u1(); // key "A" pruned
+    let fired = 0;
+    bus.on("A", () => {
+      fired++;
+    }); // new array now mapped to "A"
+    c.abort(); // late abort of the already-removed subscription — must be a no-op
+    bus.emit("A", 1);
+    expect(fired).toBe(1);
+    expect((bus as unknown as WithMapSize)._mapSize).toBe(1);
+  });
 });

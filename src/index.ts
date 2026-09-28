@@ -243,14 +243,16 @@ function flush<H>(arr: E<H>[]): void {
   }
 }
 
-// Push entry onto arr, wire AbortSignal, return unsubscribe.
-function sub<H>(arr: E<H>[], e: E<H>, sig: AbortSignal | undefined): () => void {
+// Push entry onto arr, wire AbortSignal, return unsubscribe. `x` runs after
+// every removal (unsubscribe OR abort) — the typed path passes its Map prune.
+function sub<H>(arr: E<H>[], e: E<H>, sig: AbortSignal | undefined, x?: () => void): () => void {
   arr.push(e);
   const rm = () => {
     const i = arr.indexOf(e);
     if (i >= 0) arr.splice(i, 1);
     e.c?.();
     e.c = undefined;
+    x?.();
   };
   if (sig !== undefined) {
     const fn = () => rm();
@@ -379,11 +381,6 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
       if (!arr.length && t.get(type) === arr) t.delete(type);
     };
     if (o?.once) {
-      let unsub!: () => void;
-      const rm = () => {
-        unsub();
-        prune();
-      };
       const e: E<AH> = {
         h: (p) => {
           rm();
@@ -394,14 +391,10 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
         ce: ce,
         tm: tm2,
       };
-      unsub = sub(arr, e, sig);
+      const rm = sub(arr, e, sig, prune);
       return rm;
     }
-    const unsub = sub(arr, { h: fn, u: fn, c: undefined, ce: ce, tm: tm2 }, sig);
-    return () => {
-      unsub();
-      prune();
-    };
+    return sub(arr, { h: fn, u: fn, c: undefined, ce: ce, tm: tm2 }, sig, prune);
   }
 
   function once<K extends keyof Events>(type: K, handler: EventHandler<Events[K]>): () => void {

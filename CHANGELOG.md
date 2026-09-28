@@ -4,6 +4,12 @@ All notable changes to aieventjs are summarized here.
 
 ## [Unreleased]
 
+- Fixed: aborting a typed subscription's `AbortSignal` now prunes the empty handler array from the internal Map, the same as the returned unsubscribe function; previously only unsubscribe pruned, leaving one Map entry behind per aborted, unique event name.
+- Fixed: a `once` handler consumed by a re-entrant `emit()` (called from within another handler during the same outer dispatch) no longer fires a second time when the outer dispatch's snapshot still holds it.
+- Fixed: `on(type, handler, { signal })` no longer leaves a registered-but-unusable subscription when `signal` is `null` (or another invalid/throwing `AbortSignal`); `null` is now treated the same as `undefined`.
+- Docs: README.md and README_ZHTW.md's Sharp Edges note corrected — only `dispose()` itself and previously returned unsubscribe functions are no-ops after dispose; `off()`/`clear()` throw `EmitterDisposedError` like every other post-dispose call.
+- Docs: README_ZHTW.md's `throttleMs` note updated to match the monotonic `performance.now()` behavior already documented elsewhere; it previously still described the stale `Date.now()` wall-clock caveat.
+
 ## [0.5.9] - 2026-06-29
 
 - Fixed: per-handler unsubscribe now prunes the empty handler array from the typed-handler map (no unbounded growth on high-cardinality / churning event names), with a Map-identity guard so a stale or double unsubscribe after re-subscribing cannot delete a live key.

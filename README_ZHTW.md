@@ -49,9 +49,9 @@ events.dispose();
 - 預設錯誤策略與 mitt 類似：第一個 throw 的 handler 會中止 dispatch。可用 `captureHandlerErrors` 或單一 handler 的 `captureErrors` 改成吞掉/回報後繼續。
 - Wildcard handler 收到 `(type, payload)`，不是只有 payload。
 - wildcard once 請用 `on("*", handler, { once: true })`。`once("*")` 不屬於 typed public overload。
-- `throttleMs` 使用 `Date.now()`。若系統時間往回跳，throttled handler 可能靜默到 wall time 追上為止。
+- `throttleMs` 使用 `performance.now()`（單調時鐘），不受系統時間校正影響。
 - `sampleRate` 只支援 wildcard，且每次 dispatch 以 `Math.random()` 取樣。
-- `dispose()` 是永久 teardown；dispose 後多數 API 會丟 `EmitterDisposedError`，cleanup 類呼叫則維持 no-op。
+- `dispose()` 是永久 teardown；之後 `on`/`once`/`emit`/`off`/`clear` 全部會丟 `EmitterDisposedError`。只有 `dispose()` 本身，以及先前 `on()` 回傳的 unsubscribe 函式，在 dispose 後仍安全地維持 no-op。
 
 ## AI Context
 

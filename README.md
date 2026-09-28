@@ -51,7 +51,7 @@ events.dispose();
 - Use `on("*", handler, { once: true })` for wildcard-once. `once("*")` is intentionally not part of the typed public overload.
 - `throttleMs` uses `performance.now()` (monotonic); system-clock corrections do not affect throttle windows.
 - `sampleRate` is wildcard-only and uses `Math.random()` per dispatch.
-- `dispose()` is permanent; post-dispose APIs throw `EmitterDisposedError` except cleanup calls that are no-ops by design.
+- `dispose()` is permanent; after it, `on`/`once`/`emit`/`off`/`clear` all throw `EmitterDisposedError`. Only `dispose()` itself and previously returned unsubscribe functions are safe no-ops post-dispose.
 
 ## AI Context
 

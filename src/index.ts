@@ -190,7 +190,10 @@ export class EmitterError extends Error {
 }
 
 /**
- * Thrown by any emitter method called after {@link Emitter.dispose}.
+ * Thrown by `on`/`once`/`emit`/`off`/`clear` when called after
+ * {@link Emitter.dispose}. `dispose()` itself never throws — it is
+ * idempotent — and unsubscribe functions returned before dispose remain
+ * safe no-ops afterward.
  *
  * @public
  */

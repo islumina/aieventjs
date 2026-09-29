@@ -1,5 +1,5 @@
 import * as fc from "fast-check";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { createEmitter } from "../src/index.js";
 
@@ -63,7 +63,7 @@ describe("property: snapshot stability under dynamic off()", () => {
           for (let i = 0; i < count; i++) {
             const captured = i;
             const h = (_p: Events["ping"]) => {
-              calls[captured]++;
+              calls[captured] = (calls[captured] ?? 0) + 1;
               if (captured === removedIdx) {
                 bus.off("ping", handlers[captured]!);
               }
@@ -96,7 +96,7 @@ describe("property: live-set accuracy after selective unsub", () => {
         for (let i = 0; i < keep.length; i++) {
           const captured = i;
           const unsub = bus.on("ping", () => {
-            callCounts[captured]++;
+            callCounts[captured] = (callCounts[captured] ?? 0) + 1;
           });
           if (!keep[i]) unsub();
         }
@@ -116,6 +116,42 @@ describe("property: live-set accuracy after selective unsub", () => {
         }
       }),
       { numRuns: 100 },
+    );
+  });
+});
+
+describe("property: handlers removed mid-dispatch are skipped (ai*js fan-out rule)", () => {
+  it("prop4. a handler that removes arbitrary others: already-called ones ran once, removed later ones never run, the rest run once", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 2, max: 8 }),
+        fc.nat(),
+        fc.array(fc.nat(), { maxLength: 8 }),
+        (count, removerRaw, victimsRaw) => {
+          const remover = removerRaw % count;
+          const victims = new Set(victimsRaw.map((v) => v % count));
+          const bus = createEmitter<Events>();
+          const calls = new Array<number>(count).fill(0);
+          const unsubs: Array<() => void> = [];
+          for (let i = 0; i < count; i++) {
+            const captured = i;
+            unsubs.push(
+              bus.on("ping", () => {
+                calls[captured] = (calls[captured] ?? 0) + 1;
+                if (captured === remover) for (const v of victims) unsubs[v]?.();
+              }),
+            );
+          }
+
+          bus.emit("ping", { n: 1 });
+
+          for (let i = 0; i < count; i++) {
+            const skipped = i > remover && victims.has(i);
+            expect(calls[i]).toBe(skipped ? 0 : 1);
+          }
+        },
+      ),
+      { numRuns: 200 },
     );
   });
 });

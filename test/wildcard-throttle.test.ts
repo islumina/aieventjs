@@ -120,6 +120,35 @@ describe("B. throttleMs", () => {
     expect(() => bus.on("*", vi.fn(), { throttleMs: Number.NaN })).toThrow(EmitterError);
     expect(() => bus.on("*", vi.fn(), { throttleMs: Number.NaN })).toThrow(/throttleMs/);
   });
+
+  it("B5. throttleMs=Infinity throws EmitterError at on() time (non-finite, like NaN)", () => {
+    const bus = createEmitter<Events>();
+    expect(() => bus.on("*", vi.fn(), { throttleMs: Number.POSITIVE_INFINITY })).toThrow(
+      EmitterError,
+    );
+    expect(() => bus.on("*", vi.fn(), { throttleMs: Number.POSITIVE_INFINITY })).toThrow(
+      /throttleMs/,
+    );
+  });
+
+  it("B6. a throttled handler that throws still consumes its throttle window (leading-edge timestamp is written before the call)", () => {
+    const bus = createEmitter<Events>({ captureHandlerErrors: true });
+    const fn = vi.fn(() => {
+      throw new Error("boom");
+    });
+    bus.on("*", fn, { throttleMs: 100 });
+
+    bus.emit("ping", { n: 1 }); // fires (throws, swallowed), consumes window
+    expect(fn).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(50);
+    bus.emit("ping", { n: 2 }); // still within window → dropped, even though the leader threw
+    expect(fn).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(51); // total 101ms
+    bus.emit("ping", { n: 3 }); // past window → fires again
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -404,6 +433,13 @@ describe("G. Typed-handler throttleMs (v0.5.3)", () => {
     expect(() => bus.on("ping", vi.fn(), { throttleMs: -1 })).toThrow(EmitterError);
     expect(() => bus.on("ping", vi.fn(), { throttleMs: -1 })).toThrow(/throttleMs/);
     expect(() => bus.on("ping", vi.fn(), { throttleMs: Number.NaN })).toThrow(EmitterError);
+  });
+
+  it("G4a. typed throttleMs=Infinity throws EmitterError at on() time (non-finite, like NaN)", () => {
+    const bus = createEmitter<Events>();
+    expect(() => bus.on("ping", vi.fn(), { throttleMs: Number.POSITIVE_INFINITY })).toThrow(
+      EmitterError,
+    );
   });
 
   it("G5. once + throttleMs on typed handler: once auto-removes, so it fires exactly once", () => {

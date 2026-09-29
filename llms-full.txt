@@ -64,7 +64,7 @@ events.dispose();
 - Use `on("*", handler, { once: true })` for wildcard-once. `once("*")` is intentionally not part of the typed public overload.
 - `throttleMs` uses `performance.now()` (monotonic); system-clock corrections do not affect throttle windows.
 - `sampleRate` is wildcard-only and uses `Math.random()` per dispatch.
-- `dispose()` is permanent; post-dispose APIs throw `EmitterDisposedError` except cleanup calls that are no-ops by design.
+- `dispose()` is permanent; after it, `on`/`once`/`emit`/`off`/`clear` all throw `EmitterDisposedError`. Only `dispose()` itself and previously returned unsubscribe functions are safe no-ops post-dispose.
 
 ## AI Context
 
@@ -87,6 +87,12 @@ MIT
 All notable changes to aieventjs are summarized here.
 
 ## [Unreleased]
+
+- Fixed: aborting a typed subscription's `AbortSignal` now prunes the empty handler array from the internal Map, the same as the returned unsubscribe function; previously only unsubscribe pruned, leaving one Map entry behind per aborted, unique event name.
+- Fixed: a `once` handler consumed by a re-entrant `emit()` (called from within another handler during the same outer dispatch) no longer fires a second time when the outer dispatch's snapshot still holds it.
+- Fixed: `on(type, handler, { signal })` no longer leaves a registered-but-unusable subscription when `signal` is `null` (or another invalid/throwing `AbortSignal`); `null` is now treated the same as `undefined`.
+- Docs: README.md and README_ZHTW.md's Sharp Edges note corrected — only `dispose()` itself and previously returned unsubscribe functions are no-ops after dispose; `off()`/`clear()` throw `EmitterDisposedError` like every other post-dispose call.
+- Docs: README_ZHTW.md's `throttleMs` note updated to match the monotonic `performance.now()` behavior already documented elsewhere; it previously still described the stale `Date.now()` wall-clock caveat.
 
 ## [0.5.9] - 2026-06-29
 

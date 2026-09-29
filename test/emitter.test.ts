@@ -320,6 +320,44 @@ describe("E. AbortSignal", () => {
     bus.emit("ping", { n: 1 });
     expect(fn).toHaveBeenCalledOnce();
   });
+
+  it("E7. signal: null (plain-JS / `as any` caller) — treated like undefined, does not throw, handler still fires and unsubscribes normally", () => {
+    const bus = createEmitter<Events>();
+    const fn = vi.fn();
+    let unsub: (() => void) | undefined;
+    expect(() => {
+      unsub = bus.on("ping", fn, { signal: null as unknown as AbortSignal });
+    }).not.toThrow();
+    bus.emit("ping", { n: 1 });
+    expect(fn).toHaveBeenCalledOnce();
+    unsub?.();
+    bus.emit("ping", { n: 2 });
+    expect(fn).toHaveBeenCalledOnce();
+  });
+
+  it("E8. signal: null with once:true (typed) — registers cleanly, fires exactly once, repeated emits never throw", () => {
+    const bus = createEmitter<Events>();
+    const fn = vi.fn();
+    expect(() => {
+      bus.on("ping", fn, { signal: null as unknown as AbortSignal, once: true });
+    }).not.toThrow();
+    bus.emit("ping", { n: 1 });
+    expect(fn).toHaveBeenCalledOnce();
+    expect(() => bus.emit("ping", { n: 2 })).not.toThrow();
+    expect(fn).toHaveBeenCalledOnce();
+  });
+
+  it("E9. signal: null with once:true (wildcard) — registers cleanly, fires exactly once, repeated emits never throw", () => {
+    const bus = createEmitter<Events>();
+    const fn = vi.fn();
+    expect(() => {
+      bus.on("*", fn, { signal: null as unknown as AbortSignal, once: true });
+    }).not.toThrow();
+    bus.emit("ping", { n: 1 });
+    expect(fn).toHaveBeenCalledOnce();
+    expect(() => bus.emit("ping", { n: 2 })).not.toThrow();
+    expect(fn).toHaveBeenCalledOnce();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -465,6 +503,17 @@ describe("G. Re-entrancy", () => {
     expect(log).toEqual(["after-dispose", "sibling"]);
   });
 
+  it("G6a. dispose inside a typed handler — a wildcard handler already in the snapshot still fires", () => {
+    const bus = createEmitter<Events>();
+    const wild = vi.fn();
+    bus.on("ping", () => {
+      bus.dispose();
+    });
+    bus.on("*", wild);
+    bus.emit("ping", { n: 1 });
+    expect(wild).toHaveBeenCalledOnce();
+  });
+
   it("G7. typed handler adding a wildcard mid-emit — new wildcard NOT fired this emit", () => {
     const bus = createEmitter<Events>();
     const order: string[] = [];
@@ -496,6 +545,31 @@ describe("G. Re-entrancy", () => {
     order.length = 0;
     bus.emit("ping", { n: 2 });
     expect(order).toEqual(["typed"]);
+  });
+
+  it("G9. wildcard once consumed by a nested emit does NOT fire again from the outer snapshot", () => {
+    const bus = createEmitter<{ a: number; b: number }>();
+    const calls: [string, number][] = [];
+    bus.on("*", (t, p) => calls.push([t as string, p]), { once: true });
+    bus.on("a", () => bus.emit("b", 2));
+    bus.emit("a", 1);
+    expect(calls).toEqual([["b", 2]]);
+  });
+
+  it("G10. typed once consumed by a nested same-type emit does NOT fire again (once() and on({ once }))", () => {
+    for (const viaOn of [false, true]) {
+      const bus = createEmitter<{ x: number }>();
+      const h = vi.fn();
+      let depth = 0;
+      bus.on("x", () => {
+        if (depth++ === 0) bus.emit("x", 2);
+      });
+      if (viaOn) bus.on("x", h, { once: true });
+      else bus.once("x", h);
+      bus.emit("x", 1);
+      expect(h).toHaveBeenCalledOnce();
+      expect(h).toHaveBeenCalledWith(2);
+    }
   });
 });
 
@@ -1034,5 +1108,47 @@ describe("C6. Map key pruning — empty-array entries removed on last unsub (EVT
     // FIXED:            live handler still fires and key "A" remains.
     expect(fired).toBe(1); // live handler must still fire
     expect((bus as unknown as WithMapSize)._mapSize).toBe(1); // key "A" must remain
+  });
+
+  it("C6g. AbortSignal removal prunes empty key from Map (plain signal subscription)", () => {
+    // Regression: sub() wired the abort listener to its inner rm, which never
+    // ran the typed-path prune, so an aborted subscription left an empty [].
+    const bus = createEmitter<Record<string, unknown>>();
+    const fn = vi.fn();
+    const ctrl = new AbortController();
+    bus.on("k", fn, { signal: ctrl.signal });
+    expect((bus as unknown as WithMapSize)._mapSize).toBe(1);
+    ctrl.abort();
+    bus.emit("k", undefined);
+    expect(fn).not.toHaveBeenCalled();
+    expect((bus as unknown as WithMapSize)._mapSize).toBe(0);
+  });
+
+  it("C6h. bounded Map growth — N unique-key subscribe/abort cycles leave _mapSize 0 (plain + once)", () => {
+    const N = 100;
+    for (const once of [false, true]) {
+      const bus = createEmitter<Record<string, unknown>>();
+      for (let i = 0; i < N; i++) {
+        const c = new AbortController();
+        bus.on(`k${i}`, () => {}, { signal: c.signal, once });
+        c.abort();
+      }
+      expect((bus as unknown as WithMapSize)._mapSize).toBe(0);
+    }
+  });
+
+  it("C6i. abort after the key is re-minted must NOT delete the live key", () => {
+    const bus = createEmitter<{ A: number }>();
+    const c = new AbortController();
+    const u1 = bus.on("A", () => {}, { signal: c.signal });
+    u1(); // key "A" pruned
+    let fired = 0;
+    bus.on("A", () => {
+      fired++;
+    }); // new array now mapped to "A"
+    c.abort(); // late abort of the already-removed subscription — must be a no-op
+    bus.emit("A", 1);
+    expect(fired).toBe(1);
+    expect((bus as unknown as WithMapSize)._mapSize).toBe(1);
   });
 });

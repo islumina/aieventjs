@@ -18,7 +18,7 @@ Run `pnpm lint` before PRs. If docs change, regenerate `llms-full.txt`.
 
 ## Rules
 
-- Preserve snapshot-before-iterate dispatch semantics.
+- Preserve snapshot-before-iterate dispatch semantics: handlers removed mid-dispatch are skipped, and a nested `emit()` runs to completion first.
 - Keep wildcard ordering after typed handlers.
 - Add tests for `AbortSignal`, `once`, wildcard, throttle, sample, and error policy changes.
 - Do not add async queueing to the stable emitter without a separate design note.

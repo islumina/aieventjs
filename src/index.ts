@@ -1,8 +1,8 @@
 // aieventjs — small, strict, typed event emitter for the ai*js family.
 //
-// v0.1.0: full implementation of the frozen API surface. Mitt-compatible
-// snapshot semantics, wildcard "*" handler, AbortSignal integration, once,
-// idempotent dispose, destructurable methods (no `this`).
+// Mitt-shaped API: snapshot dispatch (handlers removed mid-dispatch are
+// skipped, per the ai*js fan-out rule), wildcard "*" handler, AbortSignal
+// integration, once, idempotent dispose, destructurable methods (no `this`).
 
 /**
  * Configuration for {@link createEmitter}. Controls the default error
@@ -18,8 +18,9 @@ export interface EmitterOptions {
    *  - undefined / false (default) — first throw aborts dispatch (mitt-compatible).
    *  - true — swallow; dispatch continues over all handlers in the snapshot.
    *  - (err, type, payload) => void — invoked with the unknown error, the
-   *    event name as string, and the payload as unknown. If this callback
-   *    itself throws, the error is silently ignored.
+   *    event name as a string (numeric and symbol keys are converted with
+   *    `String()`), and the payload as unknown. If this callback itself
+   *    throws, the error is silently ignored.
    *
    * Per-subscription OnOptions.captureErrors overrides this for that handler.
    */
@@ -53,6 +54,8 @@ export interface OnOptions {
   /**
    * Aborting this signal removes the handler. The same effect as calling
    * the returned unsubscribe function. Pre-aborted signals never register.
+   * A value without `addEventListener` / `removeEventListener` throws
+   * EmitterError; `null` is treated like `undefined`.
    */
   signal?: AbortSignal;
 
@@ -126,17 +129,21 @@ export interface Emitter<Events extends Record<string, unknown>> {
   on(type: "*", handler: WildcardHandler<Events>, opts?: OnOptions): () => void;
 
   /**
-   * Subscribe and auto-remove after the first dispatch. Equivalent to
-   * `on(type, handler, { once: true })`.
+   * Wildcard-once: subscribe to every event and auto-remove after the first
+   * dispatch. Equivalent to `on("*", handler, { once: true })`: the handler
+   * receives `(type, payload)`, fires after type-matched handlers, and goes
+   * inert before it is called.
    *
    * @remarks
-   * **`"*"` is not a valid `type` argument for `once()`.** The wildcard is
-   * handled by the `on("*", handler, { once: true })` overload instead.
-   * The explicit rejection overload below ensures `once("*", ...)` is a
-   * compile-time error (handler typed as `never`). (EVT-B-02)
+   * Declared before the typed overload so `"*"` always resolves here, even
+   * when `Events` has a string index signature (EVT-B-02).
    */
-  /** @internal — compile-time rejection: `once("*", handler)` is a type error. */
-  once(type: "*", handler: never): never;
+  once(type: "*", handler: WildcardHandler<Events>): () => void;
+
+  /**
+   * Subscribe and auto-remove after the first dispatch. Equivalent to
+   * `on(type, handler, { once: true })`.
+   */
   once<K extends keyof Events>(type: K, handler: EventHandler<Events[K]>): () => void;
 
   /**
@@ -153,10 +160,13 @@ export interface Emitter<Events extends Record<string, unknown>> {
 
   /**
    * Dispatch synchronously. Handlers receive `payload`; wildcard handlers
-   * receive `(type, payload)`. Handler lists are snapshotted before iteration,
-   * so removing a handler inside its own callback does not skip subsequent
-   * handlers. By default, the first throwing handler aborts the dispatch;
-   * set EmitterOptions.captureHandlerErrors (or per-handler OnOptions.captureErrors)
+   * receive `(type, payload)`. Handler lists are snapshotted before iteration:
+   * a handler added during the dispatch waits for the next `emit()`, and a
+   * handler removed during it (unsubscribe, `off`, `clear`, `dispose` or an
+   * aborted signal) is skipped for the rest of it. A nested `emit()` from a
+   * handler runs to completion before the outer dispatch resumes. By default,
+   * the first throwing handler aborts the dispatch; set
+   * EmitterOptions.captureHandlerErrors (or per-handler OnOptions.captureErrors)
    * to swallow or report errors and continue.
    */
   emit<K extends keyof Events>(type: K, payload: Events[K]): void;
@@ -178,10 +188,12 @@ export interface Emitter<Events extends Record<string, unknown>> {
 }
 
 /**
- * Recoverable emitter error. Thrown by `on()` when `OnOptions` violates a
- * precondition: `captureErrors` set on a wildcard `"*"` subscription;
- * `sampleRate` set on a typed subscription; `sampleRate` outside `(0, 1]`; or
- * `throttleMs` non-finite or negative.
+ * Recoverable emitter error. Thrown by `on()` / `once()` before anything is
+ * registered when `handler` is not a function, or when `OnOptions` violates a
+ * precondition: `signal` is not an `AbortSignal`; `captureErrors` set on a
+ * wildcard `"*"` subscription; `sampleRate` set on a typed subscription;
+ * `sampleRate` outside `(0, 1]`; or `throttleMs` non-finite or negative.
+ * Messages read `aieventjs: <subject> must be <constraint>`.
  *
  * @public
  */
@@ -205,70 +217,55 @@ export class EmitterDisposedError extends Error {
 // Internal types
 // ---------------------------------------------------------------------------
 
-// Mutable `c` field (not optional `?:`) avoids exactOptionalPropertyTypes TS2412
-// when assigning undefined. Short field names reduce minified output size.
 type ErrorPolicy = boolean | ((err: unknown, type: string, payload: unknown) => void);
 
-interface E<H> {
-  h: H; // handler (may be a once-wrapper)
+// Stored handler shape: typed entries are called as h(payload), wildcard
+// entries as h(type, payload).
+type F = (...a: unknown[]) => void;
+
+// One subscription (typed or wildcard). Short field names reduce minified
+// output size. Fields are typed `T | undefined` so exactOptionalPropertyTypes
+// permits assigning `undefined` (avoids TS2375 / TS2412).
+interface E {
+  h: F; // handler: the user's, a once-wrapper, or N once removed
   c: (() => void) | undefined; // abortCleanup
-  u: H; // user-provided handler (off matching)
-  // v0.3.0: per-handler error policy and throttle/sample state.
-  // Fields typed as `T | undefined` (not just `T`) so that exactOptionalPropertyTypes
-  // permits assigning `undefined` in object literals (avoids TS2375).
-  ce?: ErrorPolicy | undefined; // captureErrors override (typed only)
-  r?: number | undefined; // sampleRate (wildcard only)
-  tm?: number | undefined; // throttleMs (typed or wildcard; v0.5.3)
+  u: F; // user-provided handler (off matching)
+  ce: ErrorPolicy | undefined; // captureErrors override (typed only)
+  r: number | undefined; // sampleRate (wildcard only)
+  tm: number | undefined; // throttleMs (typed or wildcard; v0.5.3)
   ts?: number | undefined; // last call timestamp — mutated during dispatch (throttle clock)
 }
 
-type AH = EventHandler<unknown>;
-type WH = WildcardHandler<Record<string, unknown>>;
+// Inert handler swapped into every removed entry (see kill()).
+const N: F = () => {};
 
-// Remove one entry by user-identity from an array; run its abort cleanup.
-function rmByUser<H>(arr: E<H>[], user: H): void {
-  const i = arr.findIndex((e) => e.u === user);
-  if (i >= 0) {
-    const e = arr[i];
-    if (e !== undefined) {
-      e.c?.();
-      e.c = undefined;
-    }
-    arr.splice(i, 1);
-  }
+// Detach an entry on every removal path (unsubscribe, abort, off, clear,
+// dispose): run its abort cleanup and make it inert, so an emit() whose
+// snapshot still holds the entry skips it for the rest of that dispatch
+// (ai*js fan-out re-entrancy rule). Idempotent.
+function kill(e: E): void {
+  e.c?.();
+  e.c = undefined;
+  e.h = N;
 }
 
-// Flush all abort cleanups from an array (for clear / dispose).
-function flush<H>(arr: E<H>[]): void {
-  for (const e of arr) {
-    e.c?.();
-    e.c = undefined;
-  }
+// Detach every entry of an array (clear / dispose / off without handler).
+function flush(arr: E[]): void {
+  for (const e of arr) kill(e);
 }
 
-// Wire AbortSignal (if any), then push entry onto arr, and return unsubscribe.
-// Wiring first means a throwing/invalid `sig` (e.g. `null` from a plain-JS
-// caller, or an addEventListener that throws) leaves no partial state: arr
-// never gains an entry that on() then fails to return an unsubscribe for.
-// `x` runs after every removal (unsubscribe OR abort) — the typed path
-// passes its Map prune.
-function sub<H>(arr: E<H>[], e: E<H>, sig: AbortSignal | undefined, x?: () => void): () => void {
-  const rm = () => {
-    const i = arr.indexOf(e);
-    if (i >= 0) arr.splice(i, 1);
-    e.c?.();
-    e.c = undefined;
-    x?.();
-  };
-  // Treat `null` the same as `undefined` — on()'s `sig?.aborted` guard above
-  // already does this; sub() must not diverge from it.
-  if (sig) {
-    const fn = () => rm();
-    sig.addEventListener("abort", fn, { once: true });
-    e.c = () => sig.removeEventListener("abort", fn);
+// Per-dispatch gate shared by the typed and wildcard loops of emit(): the
+// wildcard-only sampleRate draw, then the leading-edge throttle. The throttle
+// timestamp is written before the handler runs, so a throwing handler still
+// consumes its window, and a sample miss never touches it.
+function gate(e: E): boolean {
+  if (e.r !== undefined && Math.random() >= e.r) return false;
+  if (e.tm) {
+    const now = performance.now();
+    if (e.ts !== undefined && now - e.ts < e.tm) return false;
+    e.ts = now;
   }
-  arr.push(e);
-  return rm;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -322,175 +319,142 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
 ): Emitter<Events> {
   const cap = opts?.captureHandlerErrors;
 
-  const t: Map<string, E<AH>[]> = new Map();
-  const w: E<WH>[] = [];
+  const t: Map<string, E[]> = new Map();
+  const w: E[] = [];
   let d = false;
 
   function ck(): void {
     if (d) throw new EmitterDisposedError("aieventjs: emitter has been disposed");
   }
 
-  // Get or create typed handler array for a key.
-  function ga(k: string): E<AH>[] {
-    let a = t.get(k);
-    if (a === undefined) {
-      a = [];
-      t.set(k, a);
-    }
-    return a;
-  }
-
-  function on(type: string | "*", handler: AH | WH, o?: OnOptions): () => void {
+  function on(type: string, handler: F, o?: OnOptions): () => void {
     ck();
-    // v0.3.0 guards: cross-domain options + range checks.
-    // v0.5.3: throttleMs is now valid on typed handlers too (per-handler clock);
-    // sampleRate remains wildcard-only.
+    // Validate everything before any side effect; misuse is EmitterError with
+    // the ai*js `aieventjs: <subject> must be <constraint>` message shape.
+    // Cross-domain options: captureErrors is typed-only, sampleRate
+    // wildcard-only; throttleMs is valid on both (v0.5.3, per-handler clock).
     const sr = o?.sampleRate;
-    const tm2 = o?.throttleMs;
-    if (type === "*") {
-      if (o?.captureErrors !== undefined)
-        throw new EmitterError("aieventjs: captureErrors invalid on *");
-    } else {
-      if (sr !== undefined) throw new EmitterError("aieventjs: sampleRate wildcard-only");
-    }
+    const tm = o?.throttleMs;
+    const ce = o?.captureErrors;
+    const wild = type === "*";
+    if (typeof handler !== "function")
+      throw new EmitterError("aieventjs: handler must be a function");
+    if (wild) {
+      if (ce !== undefined) throw new EmitterError("aieventjs: captureErrors must be unset on *");
+    } else if (sr !== undefined)
+      throw new EmitterError("aieventjs: sampleRate must be unset on typed events");
     if (sr !== undefined && (!Number.isFinite(sr) || sr <= 0 || sr > 1))
       throw new EmitterError("aieventjs: sampleRate must be in (0,1]");
-    if (tm2 !== undefined && (!Number.isFinite(tm2) || tm2 < 0))
-      throw new EmitterError("aieventjs: throttleMs must be >= 0");
+    if (tm !== undefined && (!Number.isFinite(tm) || tm < 0))
+      throw new EmitterError("aieventjs: throttleMs must be a finite number >= 0");
+    // Duck-typed (not instanceof) so polyfilled and cross-realm signals pass;
+    // `null` is treated like `undefined` here and below.
     const sig = o?.signal;
+    if (
+      sig &&
+      (typeof sig.addEventListener !== "function" || typeof sig.removeEventListener !== "function")
+    )
+      throw new EmitterError("aieventjs: signal must be an AbortSignal");
     if (sig?.aborted) return () => {};
 
-    if (type === "*") {
-      const fn = handler as WH;
-      if (o?.once) {
-        const e: E<WH> = {
-          h: (tp, p) => {
-            // Go inert first: an outer emit's snapshot may still hold this
-            // entry after a nested emit consumed it (never fire twice).
-            e.h = () => {};
-            rm();
-            fn(tp, p);
-          },
-          u: fn,
-          c: undefined,
-          r: sr,
-          tm: tm2,
-        };
-        const rm = sub(w, e, sig);
-        return rm;
-      }
-      return sub(w, { h: fn, u: fn, c: undefined, r: sr, tm: tm2 }, sig);
-    }
-
-    const fn = handler as AH;
-    const ce = o?.captureErrors;
-    const arr = ga(type);
-    const prune = () => {
-      // Identity guard: only delete the key when `arr` is STILL the array
-      // currently mapped. ga() mints a NEW array when a deleted key is
-      // re-subscribed, so a stale/double unsub of the original handler must
-      // not prune the live re-subscribed key (idempotency).
+    // The checks above keep `ce` off wildcard entries and `r` off typed ones,
+    // so one entry shape serves both lists.
+    const arr = wild ? w : (t.get(type) ?? []);
+    const e: E = { h: handler, u: handler, c: undefined, ce, r: sr, tm };
+    const rm = () => {
+      const i = arr.indexOf(e);
+      if (i >= 0) arr.splice(i, 1);
+      kill(e);
+      // Prune an emptied typed key. Identity guard: only while `arr` is STILL
+      // the array mapped to `type` — a key re-subscribed after pruning gets a
+      // new array, so a stale/double unsubscribe must not delete the live key.
+      // Never true for "*": wildcards live in `w`, not in `t`.
       if (!arr.length && t.get(type) === arr) t.delete(type);
     };
-    if (o?.once) {
-      const e: E<AH> = {
-        h: (p) => {
-          e.h = () => {}; // inert before rm/fn — see wildcard once above
-          rm();
-          fn(p);
-        },
-        u: fn,
-        c: undefined,
-        ce: ce,
-        tm: tm2,
+    // rm() makes the entry inert before the call: an outer emit's snapshot
+    // may still hold it after a nested emit consumed it (never fire twice).
+    if (o?.once)
+      e.h = (...a) => {
+        rm();
+        handler(...a);
       };
-      const rm = sub(arr, e, sig, prune);
-      return rm;
+    // Wire the signal before touching any list or Map key, so a throwing
+    // addEventListener leaves no partial state.
+    if (sig) {
+      sig.addEventListener("abort", rm, { once: true });
+      e.c = () => sig.removeEventListener("abort", rm);
     }
-    return sub(arr, { h: fn, u: fn, c: undefined, ce: ce, tm: tm2 }, sig, prune);
+    arr.push(e);
+    if (!wild) t.set(type, arr);
+    return rm;
   }
 
-  function once<K extends keyof Events>(type: K, handler: EventHandler<Events[K]>): () => void {
-    return on(type as string, handler as AH, { once: true });
+  // Both overloads (typed and "*") delegate to on(): on() routes "*" to the
+  // wildcard list, so once("*", h) === on("*", h, { once: true }).
+  function once(type: string, handler: F): () => void {
+    return on(type, handler, { once: true });
   }
 
-  function off(type: string | "*", handler?: AH | WH): void {
+  function off(type: string, handler?: F): void {
     ck();
-    if (type === "*") {
-      if (handler === undefined) {
-        flush(w);
-        w.length = 0;
-      } else {
-        rmByUser(w, handler as WH);
-      }
-      return;
-    }
-    const arr = t.get(type);
+    const arr = type === "*" ? w : t.get(type);
     if (arr === undefined) return;
     if (handler === undefined) {
       flush(arr);
       arr.length = 0;
-      t.delete(type);
     } else {
-      rmByUser(arr, handler as AH);
-      if (!arr.length) t.delete(type);
+      // First entry registered with `handler` (matched by the user-provided
+      // handler, so once-wrapped entries match too).
+      const i = arr.findIndex((e) => e.u === handler);
+      if (i >= 0) flush(arr.splice(i, 1));
     }
+    if (!arr.length) t.delete(type);
   }
 
   // Inline error policy handler — policy undefined/false → re-throw; true → swallow;
   // function → invoke and swallow; if callback throws, ignore silently.
+  // The callback's `type` is always a string: numeric or symbol Events keys
+  // reach emit() raw (handlers and Map keys keep them), so coerce here.
   function ap(pol: ErrorPolicy | undefined, err: unknown, k: string, p: unknown): void {
     if (pol === undefined || pol === false) throw err;
     if (typeof pol === "function")
       try {
-        pol(err, k, p);
+        pol(err, String(k), p);
       } catch {
         /* silent */
       }
   }
 
-  function emit<K extends keyof Events>(type: K, payload: Events[K]): void {
+  function emit(type: string, payload: unknown): void {
     ck();
-    // Both slices happen BEFORE any handler call (snapshot-before-iterate).
-    const k = type as string;
-    const p = payload as unknown;
-    const ts = (t.get(k) ?? []).slice();
+    // Both slices happen BEFORE any handler call (snapshot-before-iterate);
+    // entries removed meanwhile are inert (kill()), so they are skipped.
+    const ts = (t.get(type) ?? []).slice();
     const ws = w.slice();
     for (const e of ts) {
-      if (e.tm) {
-        const now = performance.now();
-        if (e.ts !== undefined && now - e.ts < e.tm) continue;
-        e.ts = now;
-      }
-      try {
-        e.h(p);
-      } catch (err) {
-        ap(e.ce !== undefined ? e.ce : cap, err, k, p);
-      }
+      if (gate(e))
+        try {
+          e.h(payload);
+        } catch (err) {
+          ap(e.ce !== undefined ? e.ce : cap, err, type, payload);
+        }
     }
     for (const e of ws) {
-      if (e.r !== undefined && Math.random() >= e.r) continue;
-      if (e.tm) {
-        const now = performance.now();
-        if (e.ts !== undefined && now - e.ts < e.tm) continue;
-        e.ts = now;
-      }
-      try {
-        e.h(k, p as never);
-      } catch (err) {
-        ap(cap, err, k, p);
-      }
+      if (gate(e))
+        try {
+          e.h(type, payload);
+        } catch (err) {
+          ap(cap, err, type, payload);
+        }
     }
   }
 
   function purge(): void {
-    for (const a of t.values()) {
+    for (const a of [...t.values(), w]) {
       flush(a);
       a.length = 0;
     }
-    flush(w);
     t.clear();
-    w.length = 0;
   }
 
   // _mapSize: test-only observation seam (not on the public Emitter interface).
@@ -499,7 +463,7 @@ export function createEmitter<Events extends Record<string, unknown> = Record<st
     on: on as Emitter<Events>["on"],
     once: once as Emitter<Events>["once"],
     off: off as Emitter<Events>["off"],
-    emit,
+    emit: emit as Emitter<Events>["emit"],
     clear() {
       ck();
       purge();

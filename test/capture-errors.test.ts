@@ -218,7 +218,7 @@ describe("E. Dispose / type smoke", () => {
 // ---------------------------------------------------------------------------
 
 describe("F. dispose during capturing dispatch", () => {
-  it("F1. dispose inside handler: snapshot continues; re-entrant emit is caught by captureErrors; DisposedError routed to capture callback", () => {
+  it("F1. dispose inside handler: re-entrant emit's EmitterDisposedError is routed to the capture callback; the rest of the snapshot is skipped", () => {
     const captured: unknown[] = [];
     const cb = (err: unknown) => captured.push(err);
     const bus = createEmitter<Events>({ captureHandlerErrors: cb });
@@ -241,12 +241,68 @@ describe("F. dispose during capturing dispatch", () => {
     // The outer emit itself does not throw: captureHandlerErrors swallows.
     expect(() => bus.emit("ping", { n: 1 })).not.toThrow();
 
-    // Snapshot was taken before dispose(), so sibling still ran.
-    expect(log).toEqual(["disposed", "sibling"]);
+    // dispose() removed the sibling before the snapshot reached it, so it is
+    // skipped (ai*js fan-out rule, 0.6.0; it used to run).
+    expect(log).toEqual(["disposed"]);
     // The EmitterDisposedError thrown by the re-entrant bus.emit() inside
     // handler-1 is caught by the outer dispatch loop's catch(err) and
     // routed to cb.
     expect(captured).toHaveLength(1);
     expect(captured[0]).toBeInstanceOf(EmitterDisposedError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// G. Capture callbacks always receive the event name as a string (0.6.0)
+// ---------------------------------------------------------------------------
+// Numeric and symbol Events keys reach emit() raw; handlers, wildcard handlers
+// and the internal Map keep the raw key, but the capture callbacks are typed
+// and documented as receiving `type: string`.
+
+describe("G. Capture callback type is always a string", () => {
+  it('G1. numeric key: emitter-level callback receives "404" (typeof string)', () => {
+    const types: unknown[] = [];
+    const bus = createEmitter<{ 404: string }>({
+      captureHandlerErrors: (_err, type) => types.push(type),
+    });
+    const wild = vi.fn();
+    bus.on(404, () => {
+      throw new Error("boom");
+    });
+    bus.on("*", wild);
+    bus.emit(404, "not found");
+    expect(types).toEqual(["404"]);
+    expect(typeof types[0]).toBe("string");
+    // handlers keep the raw key
+    expect(wild).toHaveBeenCalledWith(404, "not found");
+  });
+
+  it("G2. numeric key: per-handler captureErrors callback receives a string too", () => {
+    const perHandler = vi.fn();
+    const bus = createEmitter<{ 7: number }>();
+    bus.on(
+      7,
+      () => {
+        throw new Error("boom");
+      },
+      { captureErrors: perHandler },
+    );
+    bus.emit(7, 1);
+    expect(perHandler).toHaveBeenCalledOnce();
+    expect(perHandler.mock.calls[0]?.[1]).toBe("7");
+  });
+
+  it("G3. symbol key: callback is still invoked, with String(symbol)", () => {
+    const sym = Symbol("tick");
+    const reports: Array<[unknown, unknown]> = [];
+    const bus = createEmitter<{ [sym]: number }>({
+      captureHandlerErrors: (err, type) => reports.push([err, type]),
+    });
+    const boom = new Error("boom");
+    bus.on(sym, () => {
+      throw boom;
+    });
+    bus.emit(sym, 1);
+    expect(reports).toEqual([[boom, "Symbol(tick)"]]);
   });
 });

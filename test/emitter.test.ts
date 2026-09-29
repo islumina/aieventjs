@@ -313,10 +313,10 @@ describe("E. AbortSignal", () => {
     expect(results).toEqual(["before-abort", "after-abort", "sibling"]);
   });
 
-  it("E6. signal: undefined explicit — same as no signal", () => {
+  it("E6. signal: undefined explicit (plain-JS / non-exactOptionalPropertyTypes caller) — same as no signal", () => {
     const bus = createEmitter<Events>();
     const fn = vi.fn();
-    bus.on("ping", fn, { signal: undefined });
+    bus.on("ping", fn, { signal: undefined as unknown as AbortSignal });
     bus.emit("ping", { n: 1 });
     expect(fn).toHaveBeenCalledOnce();
   });
@@ -473,7 +473,11 @@ describe("G. Re-entrancy", () => {
     expect(log).toEqual(["self", "sibling"]);
   });
 
-  it("G5. off inside handler (sibling) — sibling in snapshot still fires", () => {
+  // ai*js fan-out rule (0.6.0): the outer dispatch keeps iterating its
+  // pre-taken snapshot but skips every entry removed meanwhile, whatever the
+  // removal path. (Before 0.6.0 a removed sibling still received the
+  // in-flight event, mitt-style.)
+  it("G5. off inside handler (sibling) — removed sibling is skipped for the rest of the dispatch", () => {
     const bus = createEmitter<Events>();
     const log: string[] = [];
     const sibling = vi.fn(() => log.push("sibling"));
@@ -483,13 +487,12 @@ describe("G. Re-entrancy", () => {
     });
     bus.on("ping", sibling);
     bus.emit("ping", { n: 1 });
-    expect(log).toEqual(["first", "sibling"]);
-    // sibling removed from live array; won't fire next time
+    expect(log).toEqual(["first"]);
     bus.emit("ping", { n: 2 });
-    expect(sibling).toHaveBeenCalledTimes(1);
+    expect(sibling).not.toHaveBeenCalled();
   });
 
-  it("G6. dispose inside handler — current snapshot continues; re-entrant emit throws", () => {
+  it("G6. dispose inside handler — the rest of the snapshot is skipped; re-entrant emit throws", () => {
     const bus = createEmitter<Events>();
     const log: string[] = [];
     bus.on("ping", () => {
@@ -500,18 +503,70 @@ describe("G. Re-entrancy", () => {
     });
     bus.on("ping", () => log.push("sibling"));
     bus.emit("ping", { n: 1 });
-    expect(log).toEqual(["after-dispose", "sibling"]);
+    expect(log).toEqual(["after-dispose"]);
   });
 
-  it("G6a. dispose inside a typed handler — a wildcard handler already in the snapshot still fires", () => {
+  it("G6a. dispose inside a typed handler — a wildcard handler already in the snapshot is skipped", () => {
     const bus = createEmitter<Events>();
     const wild = vi.fn();
     bus.on("ping", () => {
       bus.dispose();
     });
     bus.on("*", wild);
+    expect(() => bus.emit("ping", { n: 1 })).not.toThrow();
+    expect(wild).not.toHaveBeenCalled();
+  });
+
+  type Removal = (bus: Emitter<Events>, unsub: () => void, ctrl: AbortController) => void;
+  it.each<{ name: string; wild: boolean; remove: Removal }>([
+    { name: "its unsubscribe function", wild: false, remove: (_b, unsub) => unsub() },
+    { name: "off(type)", wild: false, remove: (bus) => bus.off("ping") },
+    { name: "off('*')", wild: true, remove: (bus) => bus.off("*") },
+    { name: "clear()", wild: true, remove: (bus) => bus.clear() },
+    { name: "its aborted signal", wild: false, remove: (_b, _u, ctrl) => ctrl.abort() },
+  ])("G6b. a not-yet-called snapshot entry removed via $name is skipped", ({ wild, remove }) => {
+    const bus = createEmitter<Events>();
+    const ctrl = new AbortController();
+    const late = vi.fn();
+    let unsub = () => {};
+    bus.on("ping", () => remove(bus, unsub, ctrl));
+    unsub = wild
+      ? bus.on("*", late, { signal: ctrl.signal })
+      : bus.on("ping", late, { signal: ctrl.signal });
     bus.emit("ping", { n: 1 });
-    expect(wild).toHaveBeenCalledOnce();
+    expect(late).not.toHaveBeenCalled();
+  });
+
+  it("G6c. a sibling removed and re-added mid-dispatch is skipped now and fires on the next emit", () => {
+    const bus = createEmitter<Events>();
+    const sibling = vi.fn();
+    bus.on("ping", (p) => {
+      if (p.n === 1) {
+        bus.off("ping", sibling);
+        bus.on("ping", sibling); // new entry: not in this dispatch's snapshot
+      }
+    });
+    bus.on("ping", sibling);
+    bus.emit("ping", { n: 1 });
+    expect(sibling).not.toHaveBeenCalled();
+    bus.emit("ping", { n: 2 });
+    expect(sibling).toHaveBeenCalledOnce();
+    expect(sibling).toHaveBeenCalledWith({ n: 2 });
+  });
+
+  it("G6d. a nested emit runs to completion before the outer dispatch resumes (depth-first)", () => {
+    const bus = createEmitter<Events>();
+    const log: string[] = [];
+    bus.on("ping", () => {
+      log.push("ping:1");
+      bus.emit("pong", "inner");
+      log.push("ping:1-after");
+    });
+    bus.on("ping", () => log.push("ping:2"));
+    bus.on("pong", () => log.push("pong"));
+    bus.on("*", (type) => log.push(`*:${String(type)}`));
+    bus.emit("ping", { n: 1 });
+    expect(log).toEqual(["ping:1", "pong", "*:pong", "ping:1-after", "ping:2", "*:ping"]);
   });
 
   it("G7. typed handler adding a wildcard mid-emit — new wildcard NOT fired this emit", () => {
@@ -530,7 +585,7 @@ describe("G. Re-entrancy", () => {
     expect(order).toEqual(["typed", "typed", "wild:ping"]);
   });
 
-  it("G8. typed handler removing a wildcard mid-emit — snapshot wildcard STILL fires", () => {
+  it("G8. typed handler removing a wildcard mid-emit — the snapshot wildcard is skipped", () => {
     const bus = createEmitter<Events>();
     const order: string[] = [];
     const offWild = bus.on("*", (type) => order.push(`wild:${String(type)}`));
@@ -539,9 +594,9 @@ describe("G. Re-entrancy", () => {
       offWild();
     });
     bus.emit("ping", { n: 1 });
-    // wildcard was in the snapshot when emit began; it still fires this round.
-    expect(order).toEqual(["typed", "wild:ping"]);
-    // next emit: wildcard truly gone.
+    // wildcard was in the snapshot when emit began, but was removed before
+    // the wildcard loop reached it: skipped (ai*js fan-out rule, 0.6.0).
+    expect(order).toEqual(["typed"]);
     order.length = 0;
     bus.emit("ping", { n: 2 });
     expect(order).toEqual(["typed"]);
@@ -660,14 +715,10 @@ describe("H2. dispose — additional edge cases", () => {
 });
 
 // ---------------------------------------------------------------------------
-// T02. once("*") — type-level rejection + supported wildcard-once path (EVT-B-02 / P3)
+// T02. wildcard-once via on('*', { once }) pin (EVT-T-02)
 // ---------------------------------------------------------------------------
-// once("*", h) is NOT part of the once() public overload. The interface now
-// has an explicit rejection overload: once(type: "*", handler: never): never.
-// This makes once("*", handler) a compile-time type error.
-// The supported path for wildcard-once is: on("*", handler, { once: true }).
 
-describe("T02. once wildcard-once via on('*', { once }) pin (EVT-T-02)", () => {
+describe("T02. wildcard-once via on('*', { once }) pin (EVT-T-02)", () => {
   it("T02a. on('*', h, { once: true }) fires h exactly once as (type, payload)", () => {
     const bus = createEmitter<Events>();
     const calls: Array<[unknown, unknown]> = [];
@@ -689,31 +740,78 @@ describe("T02. once wildcard-once via on('*', { once }) pin (EVT-T-02)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// T03. once("*") type-level rejection (EVT-B-02 / P3)
+// T03. once("*") — typed wildcard-once overload (EVT-B-02, 0.6.0)
 // ---------------------------------------------------------------------------
-// Verifies the compile-time rejection overload: once(type: "*", handler: never).
-// @ts-expect-error lines confirm that once("*", handler) is a type error.
-// The runtime test confirms on("*", h, { once: true }) remains the valid path.
+// 0.6.0 replaces the 0.5.8 compile-time rejection (which could not reject "*"
+// on index-signature maps, where it silently resolved to the typed overload)
+// with a wildcard overload declared first: once("*", h) is exactly
+// on("*", h, { once: true }) for every Events map.
 
-describe("T03. once('*') type-level rejection (EVT-B-02)", () => {
-  it("T03a. once('*', handler) is a compile-time type error (@ts-expect-error)", () => {
+describe("T03. once('*') wildcard overload (EVT-B-02)", () => {
+  it("T03a. once('*', (type, payload) => ...) type-checks with type: keyof Events (literal-keyed and default map)", () => {
+    // Typed assignments are the compile-time assertions (`pnpm typecheck`
+    // covers test/): they fail if `type` were `unknown`, as it was on the
+    // default map before 0.6.0 (the typed overload won and typed the event
+    // name as the payload).
     const bus = createEmitter<Events>();
-    const wh: WildcardHandler<Events> = vi.fn();
-    // @ts-expect-error — once("*", ...) is rejected: handler not assignable to never.
-    bus.once("*", wh);
-    // The test itself is a no-op at runtime; the important check is that
-    // @ts-expect-error above does NOT produce a "Unused '@ts-expect-error'" error,
-    // which would mean TS no longer considers this a type error.
+    const off = bus.once("*", (type, payload) => {
+      const name: keyof Events = type;
+      const value: Events[keyof Events] = payload;
+      void [name, value];
+    });
+    expectTypeOf(off).toEqualTypeOf<() => void>();
+
+    const loose = createEmitter();
+    loose.once("*", (type, payload) => {
+      const name: keyof Record<string, unknown> = type;
+      void [name, payload];
+    });
+    loose.once("*", (type) => {
+      const name: string = type;
+      void name;
+    });
   });
 
-  it("T03b. on('*', handler, { once: true }) is the supported wildcard-once path — fires once", () => {
+  it("T03b. once('*', h) fires exactly once, after typed handlers", () => {
     const bus = createEmitter<Events>();
-    const calls: Array<[unknown, unknown]> = [];
-    bus.on("*", (type, payload) => calls.push([type, payload]), { once: true });
+    const order: string[] = [];
+    bus.once("*", (type) => order.push(`wild:${type}`));
+    bus.on("ping", () => order.push("typed"));
     bus.emit("ping", { n: 99 });
     bus.emit("pong", "ignored");
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toEqual(["ping", { n: 99 }]);
+    expect(order).toEqual(["typed", "wild:ping"]);
+  });
+
+  it("T03c. default map: once('*') handler receives (type, payload) at runtime, not the type name as payload", () => {
+    const bus = createEmitter();
+    const h = vi.fn();
+    bus.once("*", h);
+    bus.emit("user:login", { id: "alice" });
+    bus.emit("user:logout", undefined);
+    expect(h).toHaveBeenCalledOnce();
+    expect(h).toHaveBeenCalledWith("user:login", { id: "alice" });
+  });
+
+  it("T03d. once('*') returns an unsubscribe, is removable by off('*', h), and goes inert before a nested emit re-enters", () => {
+    const a = createEmitter<Events>();
+    const h1 = vi.fn();
+    a.once("*", h1)();
+    a.emit("ping", { n: 1 });
+    expect(h1).not.toHaveBeenCalled();
+
+    const b = createEmitter<Events>();
+    const h2 = vi.fn();
+    b.once("*", h2);
+    b.off("*", h2);
+    b.emit("ping", { n: 1 });
+    expect(h2).not.toHaveBeenCalled();
+
+    const c = createEmitter<Events>();
+    const calls: string[] = [];
+    c.once("*", (type) => calls.push(type));
+    c.on("ping", () => c.emit("pong", "nested"));
+    c.emit("ping", { n: 1 });
+    expect(calls).toEqual(["pong"]);
   });
 });
 
@@ -783,29 +881,8 @@ describe("T01. off() abort-listener detach (EVT-T-01)", () => {
 // ---------------------------------------------------------------------------
 // Mirror of the wildcard `w.length = 0` treatment: after dispose() or
 // off(type), the typed handler array referenced by any retained unsubscribe
-// closure must be truncated to length 0.  We verify the fix by capturing a
-// direct reference to the internal array via the unsub closure's captured
-// `arr` variable — achievable through a single-entry emitter where the unsub
-// closure IS the only holder of that array ref.
-//
-// Strategy: subscribe two handlers to the same type. After dispose() /
-// off(type), call the retained unsub for one of them. If `arr.length` is
-// still > 0 (fix missing), the splice in unsub would find index -1 (already
-// flushed/cleared) but arr would still hold the sibling entry. We observe this
-// via a wrapping Proxy that records every `length` read on the array.
-
-function makeTrackedArray<T>(): { arr: T[]; lengths: number[] } {
-  const lengths: number[] = [];
-  const raw: T[] = [];
-  const arr = new Proxy(raw, {
-    get(target, prop, receiver) {
-      const val = Reflect.get(target, prop, receiver);
-      if (prop === "length") lengths.push(target.length);
-      return typeof val === "function" ? (val as (...a: unknown[]) => unknown).bind(target) : val;
-    },
-  });
-  return { arr, lengths };
-}
+// closure must be truncated to length 0, so a retained unsubscribe finds
+// nothing to splice and no phantom entry stays reachable.
 
 describe("R01. Typed array truncation after dispose/off (EVT-R-01)", () => {
   it("R01a. dispose() truncates typed handler array to length 0 (retained unsub sees empty arr)", () => {
@@ -1137,6 +1214,29 @@ describe("C6. Map key pruning — empty-array entries removed on last unsub (EVT
     }
   });
 
+  it("C6j. a signal whose addEventListener throws leaves no Map key or entry behind", () => {
+    // Regression: the typed array was created and mapped before the signal was
+    // wired, so a throwing addEventListener left an empty key behind.
+    const bus = createEmitter<Record<string, unknown>>();
+    const bad = {
+      aborted: false,
+      addEventListener() {
+        throw new Error("no listeners");
+      },
+      removeEventListener() {},
+    } as unknown as AbortSignal;
+    expect(() => bus.on("k", () => {}, { signal: bad })).toThrow("no listeners");
+    expect((bus as unknown as WithMapSize)._mapSize).toBe(0);
+    // An existing key keeps only its live handler.
+    const live = vi.fn();
+    const ghost = vi.fn();
+    bus.on("k", live);
+    expect(() => bus.on("k", ghost, { signal: bad })).toThrow("no listeners");
+    bus.emit("k", 1);
+    expect(live).toHaveBeenCalledOnce();
+    expect(ghost).not.toHaveBeenCalled();
+  });
+
   it("C6i. abort after the key is re-minted must NOT delete the live key", () => {
     const bus = createEmitter<{ A: number }>();
     const c = new AbortController();
@@ -1150,5 +1250,90 @@ describe("C6. Map key pruning — empty-array entries removed on last unsub (EVT
     bus.emit("A", 1);
     expect(fired).toBe(1);
     expect((bus as unknown as WithMapSize)._mapSize).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// V. Argument validation (ai*js 0.6.0 family rule)
+// ---------------------------------------------------------------------------
+// on()/once() reject a non-function handler with EmitterError before anything
+// is registered. Before 0.6.0 it registered silently: emit() then threw a
+// bare TypeError (or, under captureHandlerErrors, swallowed it every time).
+
+describe("V. Argument validation", () => {
+  const notFunctions: unknown[] = [undefined, null, 42, "handler", {}];
+
+  it.each(notFunctions)("V1. on(type, %j) throws EmitterError and registers nothing", (bad) => {
+    const bus = createEmitter<Record<string, unknown>>({ captureHandlerErrors: true });
+    expect(() => bus.on("k", bad as () => void)).toThrow(EmitterError);
+    expect(() => bus.on("k", bad as () => void)).toThrow(/^aieventjs: handler must be a function$/);
+    expect(() => bus.on("*", bad as () => void)).toThrow(EmitterError);
+    expect((bus as unknown as WithMapSize)._mapSize).toBe(0);
+    const wild = vi.fn();
+    bus.on("*", wild);
+    bus.emit("k", 1);
+    expect(wild).toHaveBeenCalledOnce(); // no stray entry ran before it
+  });
+
+  it.each(notFunctions)("V2. once(type, %j) and the wildcard once throw EmitterError", (bad) => {
+    const bus = createEmitter<Events>();
+    expect(() => bus.once("ping", bad as () => void)).toThrow(EmitterError);
+    expect(() => bus.once("*", bad as () => void)).toThrow(EmitterError);
+  });
+
+  it("V3. handler is validated before a pre-aborted signal short-circuits registration", () => {
+    const bus = createEmitter<Events>();
+    const ctrl = new AbortController();
+    ctrl.abort();
+    expect(() => bus.on("ping", 1 as unknown as () => void, { signal: ctrl.signal })).toThrow(
+      EmitterError,
+    );
+  });
+
+  it("V4. a disposed emitter reports EmitterDisposedError before argument errors", () => {
+    const bus = createEmitter<Events>();
+    bus.dispose();
+    expect(() => bus.on("ping", 1 as unknown as () => void)).toThrow(EmitterDisposedError);
+  });
+
+  const notSignals: unknown[] = [{}, 1, "signal", true, { addEventListener() {} }];
+
+  it.each(notSignals)(
+    "V6. a signal that is not an AbortSignal (%j) throws EmitterError, not a bare TypeError, and registers nothing",
+    (bad) => {
+      const bus = createEmitter<Record<string, unknown>>();
+      const opts = { signal: bad as AbortSignal };
+      expect(() => bus.on("k", () => {}, opts)).toThrow(EmitterError);
+      expect(() => bus.on("k", () => {}, opts)).toThrow(
+        /^aieventjs: signal must be an AbortSignal$/,
+      );
+      expect(() => bus.on("*", () => {}, opts)).toThrow(EmitterError);
+      expect((bus as unknown as WithMapSize)._mapSize).toBe(0);
+    },
+  );
+
+  it("V7. option misuse messages follow the `aieventjs: <subject> must be <constraint>` shape", () => {
+    const bus = createEmitter<Events>();
+    const cases: Array<() => unknown> = [
+      () => bus.on("*", () => {}, { captureErrors: true }),
+      () => bus.on("ping", () => {}, { sampleRate: 0.5 }),
+      () => bus.on("*", () => {}, { sampleRate: 2 }),
+      () => bus.on("ping", () => {}, { throttleMs: Number.POSITIVE_INFINITY }),
+    ];
+    for (const run of cases) {
+      expect(run).toThrow(EmitterError);
+      expect(run).toThrow(/^aieventjs: \w+ must be [^.]+$/);
+    }
+  });
+
+  it("V5. EmitterError.name equals the class name", () => {
+    const bus = createEmitter<Events>();
+    try {
+      bus.on("ping", null as unknown as () => void);
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(EmitterError);
+      expect((err as Error).name).toBe("EmitterError");
+    }
   });
 });

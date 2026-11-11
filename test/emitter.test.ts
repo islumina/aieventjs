@@ -1,12 +1,12 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
+  createEmitter,
   type Emitter,
   EmitterDisposedError,
   EmitterError,
   type EventHandler,
   type WildcardHandler,
-  createEmitter,
 } from "../src/index.js";
 
 // ---------------------------------------------------------------------------

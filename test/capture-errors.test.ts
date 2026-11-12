@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
-import { EmitterDisposedError, EmitterError, createEmitter } from "../src/index.js";
+import { createEmitter, EmitterDisposedError, EmitterError } from "../src/index.js";
 
 type Events = {
   ping: { n: number };
